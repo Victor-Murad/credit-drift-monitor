@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-10-05T21:15:16.072136+00:00",
+  "seed": 42,
+  "contract_version": "1.0.0",
+  "source": {
+    "dataset": "Home Credit Default Risk (Kaggle) - application_train.csv",
+    "file": "data/raw/application_train.csv",
+    "sha256": "52e96b895b1112e1c853f670e58372719c8441c5ed1c57ac2f7fad559d784f5f",
+    "n_columns_raw_used": 21
+  },
+  "cleaning": {
+    "n_rows_raw": 307511,
+    "n_rows_rejected": 21,
+    "n_rows_clean": 307490,
+    "rejections_by_rule": [
+      {
+        "rule": "R11 - tipo de dado invalido",
+        "column": "family_members",
+        "check": "coerce_dtype('int64')",
+        "n_failures": 2,
+        "examples": []
+      },
+      {
+        "rule": "R11 - tipo de dado invalido",
+        "column": "family_members",
+        "check": "dtype('int64')",
+        "n_failures": 2,
+        "examples": []
+      },
+      {
+        "rule": "R2 - valor nulo em campo obrigatorio",
+        "column": "family_members",
+        "check": "not_nullable",
+        "n_failures": 2,
+        "examples": []
+      },
+      {
+        "rule": "R2 - valor nulo em campo obrigatorio",
+        "column": "annuity_amount",
+        "check": "not_nullable",
+        "n_failures": 12,
+        "examples": []
+      },
+      {
+        "rule": "R4 - valor fora do intervalo permitido",
+        "column": "income_total",
+        "check": "less_than_or_equal_to(10000000)",
+        "n_failures": 3,
+        "examples": [
+          "117000000.0",
+          "18000090.0",
+          "13500000.0"
+        ]
+      },
+      {
+        "rule": "R6 - categoria fora do dominio permitido",
+        "column": "gender",
+        "check": "isin(['F', 'M'])",
+        "n_failures": 4,
+        "examples": [
+          "XNA"
+        ]
+      },
+      {
+        "rule": "R6 - categoria fora do dominio permitido",
+        "column": "family_status",
+        "check": "isin(['Married', 'Single / not married', 'Civil marriage', 'Separated', 'Widow'])",
+        "n_failures": 2,
+        "examples": [
+          "Unknown"
+        ]
+      }
+    ]
+  },
+  "splits": {
+    "reference": {
+      "file": "data/reference/reference.parquet",
+      "n_rows": 215243,
+      "default_rate": 0.0807
+    },
+    "production_base": {
+      "file": "data/production/production_base.parquet",
+      "n_rows": 92247,
+      "default_rate": 0.0807
+    }
+  },
+  "reference_profile": {
+    "children_count": {
+      "null_rate": 0.0,
+      "mean": 0.4168,
+      "std": 0.7221,
+      "p05": 0.0,
+      "p50": 0.0,
+      "p95": 2.0
+    },
+    "family_members": {
+      "null_rate": 0.0,
+      "mean": 2.1522,
+      "std": 0.9103,
+      "p05": 1.0,
+      "p50": 2.0,
+      "p95": 4.0
+    },
+    "age_years": {
+      "null_rate": 0.0,
+      "mean": 43.9055,
+      "std": 11.9389,
+      "p05": 25.76,
+      "p50": 43.13,
+      "p95": 63.52
+    },
+    "years_employed": {
+      "null_rate": 0.1798,
+      "mean": 6.5279,
+      "std": 6.3902,
+      "p05": 0.56,
+      "p50": 4.52,
+      "p95": 19.93
+    },
+    "income_total": {
+      "null_rate": 0.0,
+      "mean": 168168.8663,
+      "std": 101412.8427,
+      "p05": 67500.0,
+      "p50": 146250.0,
+      "p95": 337500.0
+    },
+    "credit_amount": {
+      "null_rate": 0.0,
+      "mean": 599689.1564,
+      "std": 402332.7458,
+      "p05": 135531.0,
+      "p50": 517500.0,
+      "p95": 1350000.0
+    },
+    "annuity_amount": {
+      "null_rate": 0.0,
+      "mean": 27118.032,
+      "std": 14490.1859,
+      "p05": 9000.0,
+      "p50": 24925.5,
+      "p95": 53325.0
+    },
+    "goods_price": {
+      "null_rate": 0.0009,
+      "mean": 538872.061,
+      "std": 369258.766,
+      "p05": 135000.0,
+      "p50": 450000.0,
+      "p95": 1305000.0
+    },
+    "region_rating": {
+      "null_rate": 0.0,
+      "mean": 2.0521,
+      "std": 0.5096,
+      "p05": 1.0,
+      "p50": 2.0,
+      "p95": 3.0
+    },
+    "ext_source_2": {
+      "null_rate": 0.0021,
+      "mean": 0.5147,
+      "std": 0.1908,
+      "p05": 0.1339,
+      "p50": 0.5663,
+      "p95": 0.7479
+    },
+    "ext_source_3": {
+      "null_rate": 0.1979,
+      "mean": 0.5112,
+      "std": 0.1947,
+      "p05": 0.1547,
+      "p50": 0.5371,
+      "p95": 0.7863
+    }
+  }
+}
