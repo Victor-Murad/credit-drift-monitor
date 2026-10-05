@@ -1,0 +1,39 @@
+# Segredos e credenciais (kaggle.json nunca entra no repositorio)
+.env
+.env.*
+*.env
+kaggle.json
+access_token
+
+# Python / ambientes virtuais / caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Dados: o dataset Home Credit e licenciado pelo Kaggle apenas para uso
+# academico e NAO pode ser redistribuido. Todos os datasets derivados sao
+# regenerados com `make data` (ver README). Mantemos so a estrutura de pastas.
+data/raw/*
+data/reference/*
+data/production/*
+data/quarantine/*
+data/samples/*
+!data/**/.gitkeep
+
+# Logs de execucao (as evidencias versionadas ficam em reports/)
+logs/
+
+# OS / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
