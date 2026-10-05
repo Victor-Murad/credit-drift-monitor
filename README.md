@@ -120,6 +120,14 @@ uv run pytest
 
 Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e as dependências estão travadas no `uv.lock`.
 
+### Problemas comuns no Windows
+
+| Sintoma | Causa | Solução |
+|---|---|---|
+| `Uma política de Controle de Aplicativo bloqueou este arquivo` (os error 4551 / `DLL load failed`) | O **Smart App Control** do Windows 11 bloqueia as DLLs do pandas/numpy | Desligar em *Segurança do Windows → Controle de aplicativos e do navegador → Smart App Control* |
+| `ModuleNotFoundError: sklearn...` mesmo com o arquivo existindo | O caminho passa de 260 caracteres (limite do Windows) | Clonar o repositório numa pasta de caminho curto (ex.: `C:\dev\`) ou ativar *Long Paths* no Windows |
+| `403 Forbidden` no download do Kaggle | As regras da competição não foram aceitas | Clicar em *Late Submission → I Understand and Accept* na página da competição |
+
 ## Etapa 1 — Validação de Dados e Contratos
 
 > Foco: garantir que lixo não entre no modelo. Detalhes, evidências e o checklist 1.1–1.4 em [`docs/etapa-1-validacao-de-dados.md`](docs/etapa-1-validacao-de-dados.md).
