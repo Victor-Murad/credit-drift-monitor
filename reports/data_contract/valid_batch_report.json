@@ -1,0 +1,17 @@
+{
+  "batch_name": "valid_batch",
+  "stage": "inference",
+  "contract": "credit_application_v1.0.0",
+  "status": "APPROVED",
+  "n_rows": 500,
+  "n_columns": 20,
+  "n_failure_cases": 0,
+  "rules_violated": [],
+  "duration_ms": 44.92,
+  "validated_at": "2026-10-05T21:15:42.655693+00:00",
+  "report_files": {
+    "json": "reports/data_contract/valid_batch_report.json",
+    "html": "reports/data_contract/valid_batch_report.html"
+  },
+  "quarantine_file": null
+}

@@ -1,0 +1,129 @@
+{
+  "batch_name": "invalid_batch",
+  "stage": "inference",
+  "contract": "credit_application_v1.0.0",
+  "status": "BLOCKED",
+  "n_rows": 508,
+  "n_columns": 21,
+  "n_failure_cases": 44,
+  "rules_violated": [
+    {
+      "rule": "R1 - valor duplicado (deve ser unico)",
+      "column": "client_id",
+      "check": "field_uniqueness",
+      "n_failures": 16,
+      "examples": [
+        "328437",
+        "108111",
+        "137304",
+        "358153",
+        "354008"
+      ]
+    },
+    {
+      "rule": "R10 - coluna nao prevista no contrato",
+      "column": "credit_application_v1.0.0",
+      "check": "column_in_schema",
+      "n_failures": 1,
+      "examples": [
+        "cpf"
+      ]
+    },
+    {
+      "rule": "R2 - valor nulo em campo obrigatorio",
+      "column": "income_total",
+      "check": "not_nullable",
+      "n_failures": 5,
+      "examples": []
+    },
+    {
+      "rule": "R3 - valor fora do intervalo permitido",
+      "column": "age_years",
+      "check": "greater_than_or_equal_to(18)",
+      "n_failures": 4,
+      "examples": [
+        "17.5",
+        "16.0",
+        "12.0",
+        "17.9"
+      ]
+    },
+    {
+      "rule": "R3 - valor fora do intervalo permitido",
+      "column": "age_years",
+      "check": "less_than_or_equal_to(100)",
+      "n_failures": 2,
+      "examples": [
+        "150.0"
+      ]
+    },
+    {
+      "rule": "R4 - valor fora do intervalo permitido",
+      "column": "income_total",
+      "check": "less_than_or_equal_to(10000000)",
+      "n_failures": 2,
+      "examples": [
+        "117000000.0"
+      ]
+    },
+    {
+      "rule": "R5 - valor fora do intervalo permitido",
+      "column": "credit_amount",
+      "check": "greater_than(0)",
+      "n_failures": 3,
+      "examples": [
+        "-1029681.0",
+        "-1288350.0",
+        "-1078200.0"
+      ]
+    },
+    {
+      "rule": "R6 - categoria fora do dominio permitido",
+      "column": "contract_type",
+      "check": "isin(['Cash loans', 'Revolving loans'])",
+      "n_failures": 2,
+      "examples": [
+        "Crypto loans"
+      ]
+    },
+    {
+      "rule": "R7 - valor fora do intervalo permitido",
+      "column": "ext_source_2",
+      "check": "greater_than_or_equal_to(0)",
+      "n_failures": 1,
+      "examples": [
+        "-0.2"
+      ]
+    },
+    {
+      "rule": "R7 - valor fora do intervalo permitido",
+      "column": "ext_source_2",
+      "check": "less_than_or_equal_to(1)",
+      "n_failures": 2,
+      "examples": [
+        "1.7",
+        "3.0"
+      ]
+    },
+    {
+      "rule": "R8 - parcela maior que o valor total do credito",
+      "column": "<dataframe>",
+      "check": "annuity_not_greater_than_credit",
+      "n_failures": 6,
+      "examples": [
+        "linha 104",
+        "linha 321",
+        "linha 344",
+        "linha 374",
+        "linha 418"
+      ]
+    }
+  ],
+  "duration_ms": 71.27,
+  "validated_at": "2026-10-05T21:15:42.766619+00:00",
+  "report_files": {
+    "json": "reports/data_contract/invalid_batch_report.json",
+    "html": "reports/data_contract/invalid_batch_report.html"
+  },
+  "quarantine_file": "data/quarantine/invalid_batch_20261005T211542Z.csv"
+}

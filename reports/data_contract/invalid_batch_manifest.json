@@ -1,0 +1,82 @@
+[
+  {
+    "defect": "null_income",
+    "description": "renda nula",
+    "expected_rule": "R2",
+    "column": "income_total",
+    "n_rows": 5,
+    "detected": true
+  },
+  {
+    "defect": "underage",
+    "description": "cliente menor de 18 anos",
+    "expected_rule": "R3",
+    "column": "age_years",
+    "n_rows": 4,
+    "detected": true
+  },
+  {
+    "defect": "age_out_of_range",
+    "description": "idade impossivel (150 anos)",
+    "expected_rule": "R3",
+    "column": "age_years",
+    "n_rows": 2,
+    "detected": true
+  },
+  {
+    "defect": "negative_credit",
+    "description": "valor de credito negativo",
+    "expected_rule": "R5",
+    "column": "credit_amount",
+    "n_rows": 3,
+    "detected": true
+  },
+  {
+    "defect": "income_above_limit",
+    "description": "renda acima do limite (erro de digitacao)",
+    "expected_rule": "R4",
+    "column": "income_total",
+    "n_rows": 2,
+    "detected": true
+  },
+  {
+    "defect": "unknown_category",
+    "description": "tipo de contrato desconhecido",
+    "expected_rule": "R6",
+    "column": "contract_type",
+    "n_rows": 2,
+    "detected": true
+  },
+  {
+    "defect": "ext_score_out_of_range",
+    "description": "score externo fora de [0, 1]",
+    "expected_rule": "R7",
+    "column": "ext_source_2",
+    "n_rows": 3,
+    "detected": true
+  },
+  {
+    "defect": "annuity_gt_credit",
+    "description": "parcela maior que o credito",
+    "expected_rule": "R8",
+    "column": "<dataframe>",
+    "n_rows": 3,
+    "detected": true
+  },
+  {
+    "defect": "unexpected_pii_column",
+    "description": "coluna de CPF nao prevista no contrato",
+    "expected_rule": "R10",
+    "column": "cpf",
+    "n_rows": 500,
+    "detected": true
+  },
+  {
+    "defect": "duplicate_rows",
+    "description": "registros duplicados (mesmo client_id)",
+    "expected_rule": "R1",
+    "column": "client_id",
+    "n_rows": 8,
+    "detected": true
+  }
+]
