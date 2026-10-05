@@ -1,0 +1,168 @@
+# Data Contract -- Solicitacao de Credito (formato Data Contract Specification,
+# como apresentado na Aula 5 da disciplina de Validacao de Dados).
+#
+# Este arquivo e a camada ORGANIZACIONAL do contrato (dono, termos de uso,
+# classificacao LGPD, SLA de qualidade). A camada EXECUTAVEL e o schema Pandera
+# em src/validation/contract.py. tests/test_contract_spec.py falha se os campos
+# dos dois divergirem.
+dataContractSpecification: 1.1.0
+id: urn:datacontract:credit-scoring:credit-application:v1
+info:
+  title: Solicitacao de Credito (entrada do modelo de Credit Scoring)
+  version: 1.0.0
+  status: active
+  owner: Time de Credit Scoring - Tech Challenge Fase 4 (FIAP MLET)
+  description: >
+    Registro de uma solicitacao de credito pessoal recebida pela fintech e
+    pontuada pelo modelo de risco. Derivado do dataset publico Home Credit
+    Default Risk (Kaggle), pseudonimizado na origem.
+
+servers:
+  reference:
+    type: local
+    path: data/reference/reference.parquet
+    description: Dataset de Referencia (treino do baseline)
+  production:
+    type: local
+    path: data/production/
+    description: Lotes de producao/analise (onde o drift ocorre)
+
+terms:
+  usage: >
+    Exclusivamente para avaliacao de risco de credito (LGPD art. 7, X --
+    protecao do credito) e para monitoramento do proprio modelo.
+  limitations: >
+    Proibido uso para marketing, perfilamento fora do contexto de credito ou
+    reidentificacao de titulares. `gender` nao pode ser usado como feature
+    do modelo -- apenas para auditoria de vies (LGPD art. 6, IX).
+  noticePeriod: P1M  # mudancas incompativeis exigem 1 mes de aviso
+
+models:
+  credit_application:
+    type: table
+    description: Uma linha por solicitacao de credito.
+    fields:
+      client_id:
+        type: long
+        required: true
+        unique: true
+        minimum: 1
+        pii: true
+        classification: restricted
+        description: Identificador pseudonimizado do cliente (SK_ID_CURR).
+      contract_type:
+        type: string
+        required: true
+        enum: [Cash loans, Revolving loans]
+      gender:
+        type: string
+        required: true
+        enum: [F, M]
+        pii: true
+        classification: restricted
+        description: Somente auditoria de vies; NAO e feature do modelo.
+      own_car:
+        type: string
+        required: true
+        enum: [Y, N]
+      own_realty:
+        type: string
+        required: true
+        enum: [Y, N]
+      income_type:
+        type: string
+        required: true
+        enum: [Working, Commercial associate, Pensioner, State servant, Unemployed, Student, Businessman, Maternity leave]
+      education_type:
+        type: string
+        required: true
+        enum: [Secondary / secondary special, Higher education, Incomplete higher, Lower secondary, Academic degree]
+      family_status:
+        type: string
+        required: true
+        enum: [Married, Single / not married, Civil marriage, Separated, Widow]
+      housing_type:
+        type: string
+        required: true
+        enum: [House / apartment, With parents, Municipal apartment, Rented apartment, Office apartment, Co-op apartment]
+      region_rating:
+        type: integer
+        required: true
+        enum: [1, 2, 3]
+      children_count:
+        type: integer
+        required: true
+        minimum: 0
+        maximum: 20
+      family_members:
+        type: integer
+        required: true
+        minimum: 1
+        maximum: 25
+      age_years:
+        type: double
+        required: true
+        minimum: 18
+        maximum: 100
+        pii: true
+        classification: confidential
+      years_employed:
+        type: double
+        required: false
+        minimum: 0
+        maximum: 60
+        description: Nulo somente para aposentados/desempregados.
+      income_total:
+        type: double
+        required: true
+        exclusiveMinimum: 0
+        maximum: 10000000
+        pii: true
+        classification: confidential
+      credit_amount:
+        type: double
+        required: true
+        exclusiveMinimum: 0
+        maximum: 5000000
+        classification: confidential
+      annuity_amount:
+        type: double
+        required: true
+        exclusiveMinimum: 0
+        classification: confidential
+      goods_price:
+        type: double
+        required: false
+        exclusiveMinimum: 0
+      ext_source_2:
+        type: double
+        required: false
+        minimum: 0
+        maximum: 1
+        classification: confidential
+        description: Score normalizado de bureau externo.
+      ext_source_3:
+        type: double
+        required: false
+        minimum: 0
+        maximum: 1
+        classification: confidential
+        description: Score normalizado de bureau externo.
+      target:
+        type: integer
+        required: false  # presente so em lotes rotulados (treino/feedback)
+        enum: [0, 1]
+        description: 1 = cliente com dificuldade de pagamento (default).
+    quality:
+      - type: custom
+        description: annuity_amount <= credit_amount
+      - type: custom
+        description: years_employed nulo somente se income_type in [Pensioner, Unemployed]
+      - type: custom
+        description: Nenhuma coluna fora deste contrato (strict) -- bloqueia PII nao prevista.
+
+servicelevels:
+  completeness:
+    description: 100% dos campos obrigatorios preenchidos; qualquer violacao bloqueia o lote inteiro.
+  retention:
+    description: Ver plano de retencao LGPD no README (Etapa 4).
