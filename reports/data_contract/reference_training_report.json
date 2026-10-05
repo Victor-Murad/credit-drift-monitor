@@ -1,0 +1,17 @@
+{
+  "batch_name": "reference_training",
+  "stage": "training",
+  "contract": "credit_application_labeled_v1.0.0",
+  "status": "APPROVED",
+  "n_rows": 215243,
+  "n_columns": 21,
+  "n_failure_cases": 0,
+  "rules_violated": [],
+  "duration_ms": 91.53,
+  "validated_at": "2026-10-05T21:15:23.048311+00:00",
+  "report_files": {
+    "json": "reports/data_contract/reference_training_report.json",
+    "html": "reports/data_contract/reference_training_report.html"
+  },
+  "quarantine_file": null
+}

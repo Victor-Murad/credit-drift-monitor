@@ -1,0 +1,205 @@
+{
+  "model_version": "baseline-v1",
+  "official_model": "xgboost",
+  "trained_at": "2026-10-05T21:15:31.322878+00:00",
+  "seed": 42,
+  "contract_version": "1.0.0",
+  "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
+  "splits": {
+    "train": 129145,
+    "validation": 43049,
+    "test": 43049
+  },
+  "features": {
+    "categorical": [
+      "contract_type",
+      "own_car",
+      "own_realty",
+      "income_type",
+      "education_type",
+      "family_status",
+      "housing_type"
+    ],
+    "numeric": [
+      "children_count",
+      "family_members",
+      "age_years",
+      "years_employed",
+      "income_total",
+      "credit_amount",
+      "annuity_amount",
+      "goods_price",
+      "region_rating",
+      "ext_source_2",
+      "ext_source_3"
+    ],
+    "derived_in_pipeline": [
+      "credit_to_income",
+      "annuity_to_income",
+      "credit_to_annuity",
+      "goods_to_credit"
+    ],
+    "excluded_audit_only": [
+      "gender"
+    ]
+  },
+  "xgboost_params": {
+    "n_estimators": 500,
+    "learning_rate": 0.05,
+    "max_depth": 4,
+    "min_child_weight": 5,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_lambda": 1.0,
+    "tree_method": "hist",
+    "eval_metric": "auc",
+    "n_jobs": -1
+  },
+  "models": {
+    "xgboost": {
+      "threshold": 0.077697,
+      "test_metrics": {
+        "roc_auc": 0.7494,
+        "gini": 0.4989,
+        "ks": 0.3695,
+        "pr_auc": 0.2434,
+        "brier": 0.0679,
+        "precision": 0.1593,
+        "recall": 0.682,
+        "f1": 0.2583,
+        "approval_rate": 0.6545,
+        "default_rate_approved": 0.0392,
+        "default_rate_base": 0.0807
+      },
+      "train_seconds": 1.86
+    },
+    "logistic_regression": {
+      "threshold": 0.085172,
+      "test_metrics": {
+        "roc_auc": 0.7307,
+        "gini": 0.4613,
+        "ks": 0.3429,
+        "pr_auc": 0.218,
+        "brier": 0.0691,
+        "precision": 0.1586,
+        "recall": 0.6403,
+        "f1": 0.2542,
+        "approval_rate": 0.6741,
+        "default_rate_approved": 0.0431,
+        "default_rate_base": 0.0807
+      },
+      "train_seconds": 0.65
+    }
+  },
+  "raw_feature_importance": [
+    {
+      "feature": "ext_source_3",
+      "auc_drop_mean": 0.05831,
+      "auc_drop_std": 0.0029
+    },
+    {
+      "feature": "annuity_amount",
+      "auc_drop_mean": 0.04842,
+      "auc_drop_std": 0.00414
+    },
+    {
+      "feature": "ext_source_2",
+      "auc_drop_mean": 0.04837,
+      "auc_drop_std": 0.00242
+    },
+    {
+      "feature": "credit_amount",
+      "auc_drop_mean": 0.04146,
+      "auc_drop_std": 0.00399
+    },
+    {
+      "feature": "goods_price",
+      "auc_drop_mean": 0.02538,
+      "auc_drop_std": 0.00282
+    },
+    {
+      "feature": "education_type",
+      "auc_drop_mean": 0.00858,
+      "auc_drop_std": 0.00076
+    },
+    {
+      "feature": "years_employed",
+      "auc_drop_mean": 0.00606,
+      "auc_drop_std": 0.00189
+    },
+    {
+      "feature": "contract_type",
+      "auc_drop_mean": 0.00541,
+      "auc_drop_std": 0.0007
+    },
+    {
+      "feature": "age_years",
+      "auc_drop_mean": 0.0029,
+      "auc_drop_std": 0.00049
+    },
+    {
+      "feature": "income_total",
+      "auc_drop_mean": 0.00194,
+      "auc_drop_std": 0.00079
+    },
+    {
+      "feature": "own_car",
+      "auc_drop_mean": 0.0017,
+      "auc_drop_std": 0.00061
+    },
+    {
+      "feature": "family_status",
+      "auc_drop_mean": 0.00156,
+      "auc_drop_std": 0.00047
+    },
+    {
+      "feature": "region_rating",
+      "auc_drop_mean": 0.00132,
+      "auc_drop_std": 0.00052
+    },
+    {
+      "feature": "income_type",
+      "auc_drop_mean": 0.00077,
+      "auc_drop_std": 0.00049
+    },
+    {
+      "feature": "housing_type",
+      "auc_drop_mean": 0.00035,
+      "auc_drop_std": 0.00024
+    },
+    {
+      "feature": "own_realty",
+      "auc_drop_mean": 0.0001,
+      "auc_drop_std": 0.00014
+    },
+    {
+      "feature": "family_members",
+      "auc_drop_mean": 7e-05,
+      "auc_drop_std": 0.00019
+    },
+    {
+      "feature": "children_count",
+      "auc_drop_mean": 1e-05,
+      "auc_drop_std": 8e-05
+    }
+  ],
+  "data_lineage": {
+    "reference_file": "data/reference/reference.parquet",
+    "reference_sha256": "c6947debe56d80054f01196c1bd52aff84c8560bb6f7a6d9e6b3000e05627015",
+    "reference_rows": 215243,
+    "build_report": "reports/data_contract/reference_build_report.json"
+  },
+  "environment": {
+    "python": "3.12.15",
+    "scikit-learn": "1.9.1",
+    "xgboost": "3.4.1",
+    "pandas": "3.0.6",
+    "numpy": "2.5.3",
+    "pandera": "0.34.0",
+    "joblib": "1.6.0"
+  },
+  "artifact": {
+    "file": "models/baseline_model.joblib",
+    "sha256": "9d305aaa18613386429dd289080a47e2e2a504929fdb32e438e3a477c9c33607"
+  }
+}
