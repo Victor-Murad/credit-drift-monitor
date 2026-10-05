@@ -131,6 +131,15 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 - **Demonstração de bloqueio**: [`reports/data_contract/contract_demo_summary.md`](reports/data_contract/contract_demo_summary.md) e [`invalid_batch_report.html`](reports/data_contract/invalid_batch_report.html).
 - **Modelo baseline**: [`models/baseline_model.joblib`](models/) e as métricas em [`reports/model/baseline_metrics.md`](reports/model/baseline_metrics.md).
 
+**Resultados:**
+
+| | |
+|---|---|
+| Registros brutos rejeitados pelo contrato | 21 de 307.511 (renda de 117 mi, gênero `XNA`, parcela nula…) |
+| Dataset de Referência / Produção t0 | 215.243 / 92.247 linhas (default 8,07% em ambos) |
+| Baseline XGBoost (teste) | ROC-AUC **0,749** · Gini **0,499** · KS **0,370** (Regressão Logística: AUC 0,731) |
+| Impacto no negócio | aprova 65% dos pedidos, e a inadimplência da carteira cai de 8,07% para **3,92%** |
+| Demonstração do contrato | lote válido **APROVADO** (500 pontuados); lote sujo **BLOQUEADO** (0 pontuados); **10 de 10** defeitos detectados |
 
 ## Etapa 2 — Simulação e Detecção de Drift
 
