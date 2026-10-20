@@ -206,3 +206,5 @@ Saída no terminal (trecho):
 | `src.models.predict.score_batch(df, bundle, batch_name=...)` | Gera predições já passando pelo gate do contrato |
 | `reports/data_contract/reference_build_report.json → reference_profile` | Estatísticas de referência (média, p5, p50, p95) das variáveis numéricas |
 | `logs/pipeline.jsonl` | Eventos estruturados para centralizar na Etapa 3 |
+
+A Etapa 2 está implementada em [`docs/etapa-2-simulacao-e-deteccao-de-drift.md`](etapa-2-simulacao-e-deteccao-de-drift.md).

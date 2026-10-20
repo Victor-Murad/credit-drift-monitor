@@ -55,6 +55,7 @@ MODELS_DIR = ROOT_DIR / "models"
 REPORTS_DIR = ROOT_DIR / "reports"
 CONTRACT_REPORTS_DIR = REPORTS_DIR / "data_contract"
 MODEL_REPORTS_DIR = REPORTS_DIR / "model"
+DRIFT_REPORTS_DIR = REPORTS_DIR / "drift"
 LOGS_DIR = ROOT_DIR / "logs"
 
 # Fonte: Home Credit Default Risk (Kaggle) -- ver docs/adr/0001
@@ -66,6 +67,20 @@ RAW_FILE = RAW_DIR / RAW_FILE_NAME
 # A separacao fisica em pastas diferentes e uma Boa Pratica Obrigatoria do PDF.
 REFERENCE_FILE = REFERENCE_DIR / "reference.parquet"
 PRODUCTION_BASE_FILE = PRODUCTION_DIR / "production_base.parquet"
+# Fatias de producao com drift simulado (Etapa 2).
+PRODUCTION_T1_FILE = PRODUCTION_DIR / "production_t1_data_drift.parquet"
+PRODUCTION_T2_FILE = PRODUCTION_DIR / "production_t2_concept_drift.parquet"
+
+# --------------------------------------------------------------------------
+# Choques de drift (Etapa 2) -- valores reprodutiveis; clipados no contrato
+# --------------------------------------------------------------------------
+ANNUITY_SHOCK = 1.25
+EXT_SOURCE_3_SHIFT = -0.15
+INCOME_SHOCK = 1.15
+CONCEPT_FLIP_RATE = 0.25
+# Concept drift: flipar bons pagadores com score de bureau alto (baixo risco).
+CONCEPT_SCORE_COLUMN = "ext_source_3"
+CONCEPT_SCORE_MIN = 0.55
 
 INVALID_BATCH_FILE = SAMPLES_DIR / "invalid_batch.csv"
 VALID_BATCH_FILE = SAMPLES_DIR / "valid_batch.csv"

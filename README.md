@@ -50,6 +50,10 @@ Este projeto constrói a camada que impede essa degradação de passar desperceb
       ▼
  src/models/train.py ──► models/baseline_model.joblib (XGBoost)
  src/models/predict.py (inferência: sempre atrás do mesmo gate)
+              │
+              ▼  Etapa 2
+ src/drift/simulate.py ──► production_t1 (data) / t2 (data+concept)
+ src/drift/detect.py   ──► Evidently vs reference ──► reports/drift/
 ```
 
 ## Estrutura do repositório
@@ -66,13 +70,15 @@ Este projeto constrói a camada que impede essa degradação de passar desperceb
 ├── models/                             # baseline treinado + metadados (versionados)
 ├── reports/
 │   ├── data_contract/                  # evidências do contrato (HTML/JSON/MD)
-│   └── model/                          # métricas do baseline
+│   ├── model/                          # métricas do baseline
+│   └── drift/                          # evidências de Data/Concept Drift (Etapa 2)
 ├── src/
 │   ├── config.py                       # caminhos, seed, features
 │   ├── logging_utils.py                # logs estruturados (JSON lines)
 │   ├── data/                           # download + construção dos datasets
 │   ├── validation/                     # contrato Pandera, gate, relatórios, demo
-│   └── models/                         # features, treino, predição
+│   ├── models/                         # features, treino, predição
+│   └── drift/                          # simulação + detecção de drift (Evidently)
 └── tests/                              # pytest com dados sintéticos (sem Kaggle)
 ```
 
@@ -102,7 +108,10 @@ uv run python -m src.data.prepare        # Referência + Produção t0
 uv run python -m src.models.train        # baseline (passa pelo gate antes)
 uv run python -m src.validation.demo     # contrato bloqueando lote inválido
 
-# 4. Testes
+# 4. Etapa 2 completa (exige o passo 3)
+uv run python -m src.drift.demo          # simular drift + pontuar + Evidently
+
+# 5. Testes
 uv run pytest
 ```
 
@@ -116,6 +125,9 @@ uv run pytest
 | `make validate INPUT=arq.csv` | `uv run python -m src.validation.validate --input arq.csv` |
 | `make predict INPUT=arq.csv` | `uv run python -m src.models.predict --input arq.csv` |
 | `make etapa1` | os três comandos do passo 3 |
+| `make simulate-drift` | `uv run python -m src.drift.simulate` |
+| `make detect-drift CURRENT=...` | `uv run python -m src.drift.detect --current ...` |
+| `make drift-demo` / `make etapa2` | `uv run python -m src.drift.demo` |
 | `make test` | `uv run pytest` |
 
 Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e as dependências estão travadas no `uv.lock`.
@@ -151,7 +163,24 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 ## Etapa 2 — Simulação e Detecção de Drift
 
-> _Em construção._ Ponto de partida: `data/production/production_base.parquet` (lote t0 limpo, com rótulo, nunca visto no treino) e `src/models/predict.py` (gera predições passando pelo gate). Variáveis candidatas ao drift estão em [`docs/etapa-1-validacao-de-dados.md`](docs/etapa-1-validacao-de-dados.md#variáveis-definidas-para-o-drift-da-etapa-2).
+> Foco: tornar a degradação silenciosa visível. Detalhes e checklist 2.1–2.4 em [`docs/etapa-2-simulacao-e-deteccao-de-drift.md`](docs/etapa-2-simulacao-e-deteccao-de-drift.md).
+
+**Entregável: simulação de drift operante + relatório de detecção (Data Drift e Concept Drift).**
+
+- **Simulação:** [`src/drift/simulate.py`](src/drift/simulate.py) — a partir de `production_base.parquet`, gera t1 (data drift em `annuity_amount`, `ext_source_3`, `income_total`) e t2 (data + concept drift no `target`), com clip para continuar passando no contrato.
+- **Detecção (Evidently):** [`src/drift/detect.py`](src/drift/detect.py) — compara cada fatia com a Referência (`DataDriftPreset`, KS / chi-square). [ADR-0004](docs/adr/0004-evidently-drift-detection.md).
+- **Demo ponta a ponta:** [`src/drift/demo.py`](src/drift/demo.py) / `make etapa2` — gate → score → Evidently → [`reports/drift/drift_demo_summary.md`](reports/drift/drift_demo_summary.md).
+
+**Resultados (Home Credit, seed 42, 92.247 linhas):**
+
+| | |
+|---|---|
+| Gate em t0 / t1 / t2 | todos **APROVADOS** (drift ≠ dado inválido) |
+| Evidently t0 | sem dataset drift (AUC **0,753**, alinhado ao baseline) |
+| Evidently t1 | **Data Drift** em `annuity_amount`, `ext_source_3`, `income_total` (AUC 0,722) |
+| Evidently t2 | Data Drift + **Concept Drift** (`target`) (AUC **0,573**) |
+| Impacto no negócio | default na carteira aprovada: 3,76% (t0) → **9,82%** (t2) |
+| Lição | t1 detecta drift com queda leve de AUC; t2 (concept) degrada de fato |
 
 ## Etapa 3 — Observabilidade de Pipelines e Modelos
 
@@ -168,6 +197,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | [0001](docs/adr/0001-dataset-home-credit.md) | Dataset Home Credit Default Risk (German Credit tem < 5.000 linhas) |
 | [0002](docs/adr/0002-pandera-data-contracts.md) | Data Contracts com Pandera (e não Great Expectations) |
 | [0003](docs/adr/0003-modelo-baseline-xgboost.md) | Baseline XGBoost em Pipeline scikit-learn, threshold por KS |
+| [0004](docs/adr/0004-evidently-drift-detection.md) | Detecção de Data/Concept Drift com Evidently |
 
 ## Vídeo STAR
 
@@ -178,7 +208,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | Integrante | RM | Responsabilidade |
 |---|---|---|
 | Victor Murad | _preencher_ | Etapa 1 — Validação de dados, contratos e baseline |
-| _a definir_ | | Etapa 2 — Drift |
+| VonLuqi | _preencher_ | Etapa 2 — Drift |
 | _a definir_ | | Etapa 3 — Observabilidade |
 | _a definir_ | | Etapa 4 — Governança e vídeo |
 
