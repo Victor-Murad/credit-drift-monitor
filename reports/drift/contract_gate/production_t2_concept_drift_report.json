@@ -1,0 +1,17 @@
+{
+  "batch_name": "production_t2_concept_drift",
+  "stage": "drift",
+  "contract": "credit_application_labeled_v1.0.0",
+  "status": "APPROVED",
+  "n_rows": 92247,
+  "n_columns": 21,
+  "n_failure_cases": 0,
+  "rules_violated": [],
+  "duration_ms": 101.39,
+  "validated_at": "2026-10-20T01:43:33.452281+00:00",
+  "report_files": {
+    "json": "reports/drift/contract_gate/production_t2_concept_drift_report.json",
+    "html": "reports/drift/contract_gate/production_t2_concept_drift_report.html"
+  },
+  "quarantine_file": null
+}

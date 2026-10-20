@@ -1,4 +1,4 @@
-.PHONY: help setup download-data data train contract-demo validate predict etapa1 test test-cov lint format clean
+.PHONY: help setup download-data data train contract-demo validate predict etapa1 simulate-drift detect-drift drift-demo etapa2 test test-cov lint format clean
 
 # uv e obrigatorio (mesmo padrao da Fase 3): garante que todo o grupo rode
 # no mesmo ambiente, travado pelo uv.lock.
@@ -19,6 +19,10 @@ help:
 	@echo "make validate INPUT=<arquivo> [LABELED=1] - Valida um lote (exit 1 se bloqueado)"
 	@echo "make predict INPUT=<arquivo>  - Pontua um lote (somente se passar no contrato)"
 	@echo "make etapa1         - Executa a Etapa 1 completa (data -> train -> contract-demo)"
+	@echo "make simulate-drift - Gera fatias t1 (data) e t2 (concept) a partir de production_base"
+	@echo "make detect-drift   - Evidently: referencia vs CURRENT (padrao: t1)"
+	@echo "make drift-demo     - Etapa 2: simular + pontuar + detectar + sumario"
+	@echo "make etapa2         - Executa a Etapa 2 completa (drift-demo)"
 	@echo "make test           - Testes (pytest)"
 	@echo "make lint / format  - Ruff"
 
@@ -44,6 +48,17 @@ predict:
 	$(PYTHON) -m src.models.predict --input $(INPUT)
 
 etapa1: data train contract-demo
+
+simulate-drift:
+	$(PYTHON) -m src.drift.simulate
+
+detect-drift:
+	$(PYTHON) -m src.drift.detect --current $(or $(CURRENT),data/production/production_t1_data_drift.parquet)
+
+drift-demo:
+	$(PYTHON) -m src.drift.demo
+
+etapa2: drift-demo
 
 test:
 	$(PYTHON) -m pytest

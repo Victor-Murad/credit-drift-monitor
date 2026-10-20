@@ -1,0 +1,286 @@
+{
+  "generated_at": "2026-10-20T01:43:35.988602+00:00",
+  "seed": 42,
+  "evidently_sample_size": 15000,
+  "model_version": "baseline-v1",
+  "slices": {
+    "production_t0": {
+      "n_rows": 92247,
+      "contract": "APROVADO",
+      "metrics": {
+        "roc_auc": 0.7534,
+        "gini": 0.5069,
+        "ks": 0.3781,
+        "pr_auc": 0.2369,
+        "brier": 0.0682,
+        "precision": 0.1606,
+        "recall": 0.6972,
+        "f1": 0.261,
+        "approval_rate": 0.6495,
+        "default_rate_approved": 0.0376,
+        "default_rate_base": 0.0807
+      },
+      "path": "data/production/production_base.parquet"
+    },
+    "production_t1_data_drift": {
+      "n_rows": 92247,
+      "contract": "APROVADO",
+      "metrics": {
+        "roc_auc": 0.7223,
+        "gini": 0.4446,
+        "ks": 0.3239,
+        "pr_auc": 0.2064,
+        "brier": 0.071,
+        "precision": 0.1285,
+        "recall": 0.7633,
+        "f1": 0.2199,
+        "approval_rate": 0.5204,
+        "default_rate_approved": 0.0367,
+        "default_rate_base": 0.0807
+      },
+      "path": "data/production/production_t1_data_drift.parquet"
+    },
+    "production_t2_concept_drift": {
+      "n_rows": 92247,
+      "contract": "APROVADO",
+      "metrics": {
+        "roc_auc": 0.5733,
+        "gini": 0.1467,
+        "ks": 0.146,
+        "pr_auc": 0.1857,
+        "brier": 0.1044,
+        "precision": 0.1384,
+        "recall": 0.5649,
+        "f1": 0.2223,
+        "approval_rate": 0.5204,
+        "default_rate_approved": 0.0982,
+        "default_rate_base": 0.1175
+      },
+      "path": "data/production/production_t2_concept_drift.parquet"
+    }
+  },
+  "drift": {
+    "production_t0": {
+      "batch_name": "production_t0",
+      "n_rows_reference": 15000,
+      "n_rows_current": 15000,
+      "columns_checked": [
+        "annuity_amount",
+        "ext_source_3",
+        "ext_source_2",
+        "income_total",
+        "credit_amount",
+        "years_employed",
+        "target"
+      ],
+      "n_drifted_columns": 1,
+      "drifted_share": 0.1429,
+      "dataset_drift": false,
+      "column_results": [
+        {
+          "column": "annuity_amount",
+          "method": "ks",
+          "statistic": 0.03387,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "ext_source_3",
+          "method": "ks",
+          "statistic": 0.398284,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "ext_source_2",
+          "method": "ks",
+          "statistic": 0.958776,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "income_total",
+          "method": "ks",
+          "statistic": 0.681388,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "credit_amount",
+          "method": "ks",
+          "statistic": 0.373515,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "years_employed",
+          "method": "ks",
+          "statistic": 0.774317,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "target",
+          "method": "chisquare",
+          "statistic": 0.418384,
+          "threshold": 0.05,
+          "drifted": false
+        }
+      ],
+      "concept_drift": false,
+      "duration_ms": 2139.96,
+      "report_paths": {
+        "html": "reports/drift/production_t0_drift_report.html",
+        "json": "reports/drift/production_t0_drift_report.json"
+      }
+    },
+    "production_t1_data_drift": {
+      "batch_name": "production_t1_data_drift",
+      "n_rows_reference": 15000,
+      "n_rows_current": 15000,
+      "columns_checked": [
+        "annuity_amount",
+        "ext_source_3",
+        "ext_source_2",
+        "income_total",
+        "credit_amount",
+        "years_employed",
+        "target"
+      ],
+      "n_drifted_columns": 3,
+      "drifted_share": 0.4286,
+      "dataset_drift": true,
+      "column_results": [
+        {
+          "column": "annuity_amount",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "ext_source_3",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "ext_source_2",
+          "method": "ks",
+          "statistic": 0.958776,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "income_total",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "credit_amount",
+          "method": "ks",
+          "statistic": 0.373515,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "years_employed",
+          "method": "ks",
+          "statistic": 0.774317,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "target",
+          "method": "chisquare",
+          "statistic": 0.418384,
+          "threshold": 0.05,
+          "drifted": false
+        }
+      ],
+      "concept_drift": false,
+      "duration_ms": 1267.4,
+      "report_paths": {
+        "html": "reports/drift/production_t1_data_drift_drift_report.html",
+        "json": "reports/drift/production_t1_data_drift_drift_report.json"
+      }
+    },
+    "production_t2_concept_drift": {
+      "batch_name": "production_t2_concept_drift",
+      "n_rows_reference": 15000,
+      "n_rows_current": 15000,
+      "columns_checked": [
+        "annuity_amount",
+        "ext_source_3",
+        "ext_source_2",
+        "income_total",
+        "credit_amount",
+        "years_employed",
+        "target"
+      ],
+      "n_drifted_columns": 4,
+      "drifted_share": 0.5714,
+      "dataset_drift": true,
+      "column_results": [
+        {
+          "column": "annuity_amount",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "ext_source_3",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "ext_source_2",
+          "method": "ks",
+          "statistic": 0.958776,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "income_total",
+          "method": "ks",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        },
+        {
+          "column": "credit_amount",
+          "method": "ks",
+          "statistic": 0.373515,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "years_employed",
+          "method": "ks",
+          "statistic": 0.774317,
+          "threshold": 0.05,
+          "drifted": false
+        },
+        {
+          "column": "target",
+          "method": "chisquare",
+          "statistic": 0.0,
+          "threshold": 0.05,
+          "drifted": true
+        }
+      ],
+      "concept_drift": true,
+      "duration_ms": 1610.33,
+      "report_paths": {
+        "html": "reports/drift/production_t2_concept_drift_drift_report.html",
+        "json": "reports/drift/production_t2_concept_drift_drift_report.json"
+      }
+    }
+  }
+}

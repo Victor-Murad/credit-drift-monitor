@@ -1,0 +1,174 @@
+{
+  "batch_name": "production_t0",
+  "n_rows_reference": 15000,
+  "n_rows_current": 15000,
+  "columns_checked": [
+    "annuity_amount",
+    "ext_source_3",
+    "ext_source_2",
+    "income_total",
+    "credit_amount",
+    "years_employed",
+    "target"
+  ],
+  "n_drifted_columns": 1,
+  "drifted_share": 0.1429,
+  "dataset_drift": false,
+  "column_results": [
+    {
+      "column": "annuity_amount",
+      "method": "ks",
+      "statistic": 0.03387,
+      "threshold": 0.05,
+      "drifted": true
+    },
+    {
+      "column": "ext_source_3",
+      "method": "ks",
+      "statistic": 0.398284,
+      "threshold": 0.05,
+      "drifted": false
+    },
+    {
+      "column": "ext_source_2",
+      "method": "ks",
+      "statistic": 0.958776,
+      "threshold": 0.05,
+      "drifted": false
+    },
+    {
+      "column": "income_total",
+      "method": "ks",
+      "statistic": 0.681388,
+      "threshold": 0.05,
+      "drifted": false
+    },
+    {
+      "column": "credit_amount",
+      "method": "ks",
+      "statistic": 0.373515,
+      "threshold": 0.05,
+      "drifted": false
+    },
+    {
+      "column": "years_employed",
+      "method": "ks",
+      "statistic": 0.774317,
+      "threshold": 0.05,
+      "drifted": false
+    },
+    {
+      "column": "target",
+      "method": "chisquare",
+      "statistic": 0.418384,
+      "threshold": 0.05,
+      "drifted": false
+    }
+  ],
+  "concept_drift": false,
+  "duration_ms": 2139.96,
+  "report_paths": {},
+  "evidently_metrics": [
+    {
+      "id": "ee872157bf6935d2539ddf961e05af36",
+      "metric_name": "DriftedColumnsCount(columns=annuity_amount,ext_source_3,ext_source_2,income_total,credit_amount,years_employed,target,drift_share=0.3,cat_method=chisquare,num_method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:DriftedColumnsCount",
+        "columns": [
+          "annuity_amount",
+          "ext_source_3",
+          "ext_source_2",
+          "income_total",
+          "credit_amount",
+          "years_employed",
+          "target"
+        ],
+        "drift_share": 0.3,
+        "cat_method": "chisquare",
+        "num_method": "ks",
+        "threshold": 0.05
+      },
+      "value": {
+        "count": 1.0,
+        "share": 0.14285714285714285
+      }
+    },
+    {
+      "id": "4cf359c42429c776352e18c94164822f",
+      "metric_name": "ValueDrift(column=annuity_amount,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "annuity_amount",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.03386993752289691
+    },
+    {
+      "id": "41a34c6f6adeca4667b37580c581cc4b",
+      "metric_name": "ValueDrift(column=ext_source_3,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "ext_source_3",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.398284376030398
+    },
+    {
+      "id": "1ed516cb0d0ab02586ef93fb5ff14810",
+      "metric_name": "ValueDrift(column=ext_source_2,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "ext_source_2",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.9587761943444136
+    },
+    {
+      "id": "076144ecdcc71eeb5af5d5ea3af53e22",
+      "metric_name": "ValueDrift(column=income_total,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "income_total",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.6813882884952163
+    },
+    {
+      "id": "1ac7713e0eceb3857c65051139790f67",
+      "metric_name": "ValueDrift(column=credit_amount,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "credit_amount",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.3735151756059043
+    },
+    {
+      "id": "222bbb9027581af528d5d848be1974bb",
+      "metric_name": "ValueDrift(column=years_employed,method=ks,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "years_employed",
+        "method": "ks",
+        "threshold": 0.05
+      },
+      "value": 0.7743169381353954
+    },
+    {
+      "id": "4fa4f44c43ea396c84ce70e66768f0fc",
+      "metric_name": "ValueDrift(column=target,method=chisquare,threshold=0.05)",
+      "config": {
+        "type": "evidently:metric_v2:ValueDrift",
+        "column": "target",
+        "method": "chisquare",
+        "threshold": 0.05
+      },
+      "value": 0.41838397454001386
+    }
+  ]
+}

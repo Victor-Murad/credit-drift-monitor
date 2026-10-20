@@ -15,6 +15,8 @@ dependencies = [
     "pandas>=2.2",
     "numpy>=1.26",
     "pyarrow>=17.0",
+    # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adr/0004)
+    "evidently>=0.4.40",
 ]
 
 [dependency-groups]
