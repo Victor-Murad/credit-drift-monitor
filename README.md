@@ -66,7 +66,7 @@ Este projeto constrói a camada que impede essa degradação de passar desperceb
 │   ├── production/                     #   lotes de produção/análise (drift na Etapa 2)
 │   ├── quarantine/                     #   lotes bloqueados pelo contrato
 │   └── samples/                        #   lotes de demonstração (válido / inválido)
-├── docs/adr/                           # decisões de arquitetura
+├── docs/adrs/                           # decisões de arquitetura
 ├── models/                             # baseline treinado + metadados (versionados)
 ├── reports/
 │   ├── data_contract/                  # evidências do contrato (HTML/JSON/MD)
@@ -168,7 +168,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 **Entregável: simulação de drift operante + relatório de detecção (Data Drift e Concept Drift).**
 
 - **Simulação:** [`src/drift/simulate.py`](src/drift/simulate.py) — a partir de `production_base.parquet`, gera t1 (data drift em `annuity_amount`, `ext_source_3`, `income_total`) e t2 (data + concept drift no `target`), com clip para continuar passando no contrato.
-- **Detecção (Evidently):** [`src/drift/detect.py`](src/drift/detect.py) — compara cada fatia com a Referência (`DataDriftPreset`, KS / chi-square). [ADR-0004](docs/adr/0004-evidently-drift-detection.md).
+- **Detecção (Evidently):** [`src/drift/detect.py`](src/drift/detect.py) — compara cada fatia com a Referência (`DataDriftPreset`, KS / chi-square). [ADR-0004](docs/adrs/0004-evidently-drift-detection.md).
 - **Demo ponta a ponta:** [`src/drift/demo.py`](src/drift/demo.py) / `make etapa2` — gate → score → Evidently → [`reports/drift/drift_demo_summary.md`](reports/drift/drift_demo_summary.md).
 
 **Resultados (Home Credit, seed 42, 92.247 linhas):**
@@ -194,10 +194,10 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 | ADR | Decisão |
 |---|---|
-| [0001](docs/adr/0001-dataset-home-credit.md) | Dataset Home Credit Default Risk (German Credit tem < 5.000 linhas) |
-| [0002](docs/adr/0002-pandera-data-contracts.md) | Data Contracts com Pandera (e não Great Expectations) |
-| [0003](docs/adr/0003-modelo-baseline-xgboost.md) | Baseline XGBoost em Pipeline scikit-learn, threshold por KS |
-| [0004](docs/adr/0004-evidently-drift-detection.md) | Detecção de Data/Concept Drift com Evidently |
+| [0001](docs/adrs/0001-dataset-home-credit.md) | Dataset Home Credit Default Risk (German Credit tem < 5.000 linhas) |
+| [0002](docs/adrs/0002-pandera-data-contracts.md) | Data Contracts com Pandera (e não Great Expectations) |
+| [0003](docs/adrs/0003-modelo-baseline-xgboost.md) | Baseline XGBoost em Pipeline scikit-learn, threshold por KS |
+| [0004](docs/adrs/0004-evidently-drift-detection.md) | Detecção de Data/Concept Drift com Evidently |
 
 ## Vídeo STAR
 

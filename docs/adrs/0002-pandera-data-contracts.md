@@ -1,4 +1,14 @@
-# ADR-0002 — Data Contracts com Pandera (e não Great Expectations)
+<!--
+================================================================================
+LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
+--------------------------------------------------------------------------------
+Data       | Autor          | Descrição
+--------------------------------------------------------------------------------
+2026-10-20 | Eduardo Batista | Adequação ao padrão canônico de ADR (título, log e seção 2).
+================================================================================
+-->
+
+# ADR 0002: Data Contracts com Pandera (e não Great Expectations)
 
 - **Status:** aceita
 - **Etapa:** 1 (checklist 1.2 e 1.4; ambiguidade #5 do checklist)
@@ -10,7 +20,7 @@ O PDF aceita **Great Expectations ou Pandera** e não dá critério de desempate
 - A **Aula 5 — Validação de Schema e Contratos de Dados**, que trata exatamente do tema da Etapa 1, implementa o contrato com **Pandera** (`DataFrameModel`, `pa.Field`, `validate(lazy=True)`, `SchemaErrors`). A dica prática da aula é: *"comece com Pandera para validação de DataFrames"*.
 - A **Aula 7 — Frameworks de Qualidade de Dados** apresenta os dois. O Great Expectations (API v1.x) exige contexto, data source, asset, batch definition, suite e validation definition. O Pandera é declarado como uma classe Python.
 
-## Decisão
+## 2. Decisão de Arquitetura
 
 Usar **Pandera** (`pandera.pandas.DataFrameModel`) como camada executável do contrato. A camada organizacional (dono, termos de uso, classificação LGPD dos campos) segue o formato **Data Contract Specification** (YAML), também da Aula 5, em `contracts/credit_application.yaml`.
 

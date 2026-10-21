@@ -58,7 +58,7 @@ MODEL_REPORTS_DIR = REPORTS_DIR / "model"
 DRIFT_REPORTS_DIR = REPORTS_DIR / "drift"
 LOGS_DIR = ROOT_DIR / "logs"
 
-# Fonte: Home Credit Default Risk (Kaggle) -- ver docs/adr/0001
+# Fonte: Home Credit Default Risk (Kaggle) -- ver docs/adrs/0001
 KAGGLE_COMPETITION = "home-credit-default-risk"
 RAW_FILE_NAME = "application_train.csv"
 RAW_FILE = RAW_DIR / RAW_FILE_NAME

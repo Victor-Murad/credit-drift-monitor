@@ -1,4 +1,14 @@
-# ADR-0003 — Modelo baseline: XGBoost em Pipeline scikit-learn
+<!--
+================================================================================
+LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
+--------------------------------------------------------------------------------
+Data       | Autor          | Descrição
+--------------------------------------------------------------------------------
+2026-10-20 | Eduardo Batista | Adequação ao padrão canônico de ADR (título, log e seção 2).
+================================================================================
+-->
+
+# ADR 0003: Modelo baseline: XGBoost em Pipeline scikit-learn
 
 - **Status:** aceita
 - **Etapa:** 1 (checklist 1.1 e 1.3)
@@ -7,7 +17,7 @@
 
 O PDF lista **"Scikit-Learn / XGBoost — para treinar o modelo base de risco de crédito"** e pede "um modelo de classificação simples". O foco da fase não é a performance do modelo, e sim a camada de sustentação (contratos, drift, observabilidade, governança). O baseline só precisa ser bom o suficiente para que a degradação seja mensurável.
 
-## Decisão
+## 2. Decisão de Arquitetura
 
 - **Modelo oficial:** `XGBClassifier` com hiperparâmetros fixos e conservadores (500 árvores, profundidade 4, `learning_rate` 0,05), dentro de um `Pipeline` do scikit-learn: features derivadas → one-hot → XGBoost. As duas bibliotecas citadas no PDF ficam em uso.
 - **Modelo de comparação:** Regressão Logística com as mesmas features. Ela não vai para produção; serve só para mostrar que a escolha do XGBoost tem ganho mensurável (`reports/model/baseline_metrics.md`).

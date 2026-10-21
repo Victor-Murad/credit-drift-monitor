@@ -1,4 +1,14 @@
-# ADR-0004 — Detecção de drift com Evidently
+<!--
+================================================================================
+LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
+--------------------------------------------------------------------------------
+Data       | Autor          | Descrição
+--------------------------------------------------------------------------------
+2026-10-20 | Eduardo Batista | Adequação ao padrão canônico de ADR (título, log e seção 2).
+================================================================================
+-->
+
+# ADR 0004: Detecção de drift com Evidently
 
 - **Status:** aceita
 - **Etapa:** 2 (simulação e detecção de Data Drift e Concept Drift)
@@ -9,7 +19,7 @@ A Etapa 2 pede simular degradação econômica (Data Drift em variáveis importa
 
 Alternativas consideradas: PSI “na mão”, `alibi-detect`, Deepchecks. PSI isolado cobre só distribuição univariada e não gera o relatório HTML didático do vídeo. Alibi-detect e Deepchecks são mais pesados e menos alinhados ao stack já usado (pandas + scikit-learn).
 
-## Decisão
+## 2. Decisão de Arquitetura
 
 Usar **Evidently** ≥ 0.7 (`Report` + `DataDriftPreset`) em `src/drift/detect.py`, comparando `data/reference/reference.parquet` com as fatias de produção (`production_base`, `production_t1_*`, `production_t2_*`). A coluna `target` entra no mesmo preset (`ValueDrift`) para evidenciar Concept Drift; não há `TargetDriftPreset` separado nesta API.
 

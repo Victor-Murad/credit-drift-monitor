@@ -4,7 +4,7 @@
   passa pelo gate do contrato ANTES do treino (contrato rotulado).
 - Modelo oficial: XGBoost dentro de um Pipeline scikit-learn.
 - Modelo de comparacao: Regressao Logistica (mesmas features) -- serve so
-  como linha de base para justificar a escolha (docs/adr/0003).
+  como linha de base para justificar a escolha (docs/adrs/0003).
 - Particao estratificada da referencia: 60% treino / 20% validacao
   (escolha do threshold) / 20% teste (metricas reportadas).
 - Saidas: models/baseline_model.joblib, models/baseline_metadata.json e
