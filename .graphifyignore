@@ -1,0 +1,39 @@
+# Documentação Técnica e Artefatos de IA (Regra de Ouro 1)
+docs/
+docs/ai/
+.agents/
+.claude/
+.gemini/
+.superpowers/
+*.md
+
+
+# Ambientes Virtuais e Gerenciadores de Pacotes
+.venv/
+venv/
+node_modules/
+vendor/
+
+# Artefatos de Build, Compilação e Bytecode
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+.angular/
+.next/
+.nuxt/
+target/
+
+# Caches e Relatórios de Teste
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+graphify-out/
+
+# Controle de Versão e Worktrees
+.git/
+.worktrees/
+.trunk/

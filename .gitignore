@@ -37,3 +37,16 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# ai-guides: memória privada local, team/ versionada
+.claude/memory/*
+!.claude/memory/team/
+.gemini/memory/*
+!.gemini/memory/team/
+graphify-out/
+
+# Harness local (apenas .claude/ é versionado)
+.agents/
+.gemini/
+AGENTS.md
+CLAUDE.md
