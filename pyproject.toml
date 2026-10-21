@@ -5,17 +5,17 @@ description = "Camada de sustentacao e confiabilidade de um modelo de Credit Sco
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # Modelo base de risco de credito (Etapa 1 -- ver docs/adr/0003)
+    # Modelo base de risco de credito (Etapa 1 -- ver docs/adrs/0003)
     "scikit-learn>=1.5",
     "xgboost>=2.1",
     "joblib>=1.4",
-    # Data Contracts (Etapa 1 -- ver docs/adr/0002)
+    # Data Contracts (Etapa 1 -- ver docs/adrs/0002)
     "pandera>=0.24",
     # Manipulacao de dados
     "pandas>=2.2",
     "numpy>=1.26",
     "pyarrow>=17.0",
-    # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adr/0004)
+    # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adrs/0004)
     "evidently>=0.4.40",
 ]
 
@@ -31,6 +31,8 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "pyyaml>=6.0",
+    "import-linter>=2.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv]
@@ -46,9 +48,29 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+# Clean Code (guia de arquitetura §7.5/§7.2): except silencioso e complexidade
+extend-select = ["E722", "BLE001", "S110", "C901"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+
+[tool.importlinter]
+root_package = "src"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dominio nao importa frameworks web/HTTP/ORM"
+type = "forbidden"
+source_modules = ["src.config", "src.validation.contract", "src.models.features"]
+forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "httpx"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+# Catraca: cobertura atual 68% (meta 80%). Nunca reduzir; subir a cada PR.
+fail_under = 68
+show_missing = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
