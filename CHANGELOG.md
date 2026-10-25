@@ -13,6 +13,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 - Queda de ROC-AUC vs. baseline como sinal de concept drift (`src/drift/performance.py`), exposta no sumário da demo (`performance`).
 - Demo de drift usa `min_psi=0,10` (validado com dados reais): t0 sem falso alerta; sumário passa a incluir PSI por coluna e a degradação de AUC.
 - Testes de integração do pipeline ponta a ponta em sandbox (`tests/integration/`) e testes de download, PSI e CLIs.
+- Mitigações do architecture review ([relatório](docs/ai/reports/2026-10-25-architecture-review-src.md)):
+  - detecção de drift falha fechada (`DriftParsingError`) quando o Snapshot do Evidently não traz `ValueDrift`; Evidently limitado a `<0.8`;
+  - `load_bundle` confere o sha256 do modelo contra `baseline_metadata.json` antes de desserializar (`src/models/integrity.py`);
+  - métricas em `src/models/metrics.py` e `read_batch` em `src/validation/io.py`, desfazendo dois acoplamentos entre camadas; contrato `layers` (drift → models → validation) no import-linter;
+  - todo evento de log carrega `run_id` (ou `PIPELINE_RUN_ID`); `drift_detected` registra `model_version` e `min_psi`; o log JSONL rotaciona (10 MB × 5);
+  - workflow de CI (`.github/workflows/ci.yml`: `uv sync --locked`, `make lint`, `make test-cov`) e Dependabot para `github-actions`.
 
 ### Alterado
 - Piso do Evidently em `pyproject.toml` corrigido para `>=0.7` (a API usada, `from evidently import Report`, não existe antes).
