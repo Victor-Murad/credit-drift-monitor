@@ -43,7 +43,7 @@ desktop.ini
 !.claude/memory/team/
 .gemini/memory/*
 !.gemini/memory/team/
-graphify-out/
+graphify-out
 
 # Harness local (apenas .claude/ é versionado)
 .agents/
