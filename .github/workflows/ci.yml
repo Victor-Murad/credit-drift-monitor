@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar ambiente (travado pelo uv.lock)
+        run: uv sync --locked
+
+      # Os testes usam dados sinteticos: o dataset do Kaggle nao e versionado
+      # (licenca) e o CI nao tem credenciais.
+      - name: Lint (ruff + import-linter)
+        run: make lint
+
+      - name: Testes com cobertura (piso em pyproject.toml)
+        run: make test-cov
