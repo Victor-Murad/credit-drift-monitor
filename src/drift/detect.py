@@ -40,6 +40,14 @@ from src.logging_utils import get_logger, log_event
 logger = get_logger("drift.detect")
 
 
+class DriftParsingError(RuntimeError):
+    """O Snapshot do Evidently nao trouxe nenhum `ValueDrift` por coluna.
+
+    Sem esse bloqueio o lote sairia "estavel" por ausencia de dados (falha
+    aberta), por exemplo apos uma troca de formato numa versao nova da lib.
+    """
+
+
 @dataclass
 class ColumnDrift:
     column: str
@@ -137,9 +145,15 @@ def _parse_snapshot(
             )
         )
 
-    if not n_drifted and column_results:
+    if not column_results:
+        raise DriftParsingError(
+            "Snapshot do Evidently sem ValueDrift por coluna: formato inesperado "
+            "(versao incompativel?). Drift nao pode ser avaliado."
+        )
+
+    if not n_drifted:
         n_drifted = sum(1 for c in column_results if c.drifted)
-        share = n_drifted / len(column_results) if column_results else 0.0
+        share = n_drifted / len(column_results)
 
     return n_drifted, share, column_results
 
@@ -154,6 +168,7 @@ def run_drift_detection(
     drift_share: float = 0.3,
     threshold: float = 0.05,
     min_psi: float | None = None,
+    model_version: str | None = None,
     report_dir: Path | None = DRIFT_REPORTS_DIR,
 ) -> DriftResult:
     """Roda Evidently DataDriftPreset e grava relatorios HTML/JSON.
@@ -161,7 +176,8 @@ def run_drift_detection(
     Todo `ColumnDrift` recebe o PSI. Por padrao a decisao `drifted` segue so o
     p-valor; com `min_psi` (ex.: `PSI_MODERATE`) a coluna so e marcada quando
     o teste e significativo E o efeito e relevante, o que elimina alertas de
-    ruido em amostras grandes (ADR-0005).
+    ruido em amostras grandes (ADR-0005). `model_version` so entra no log do
+    evento, para ligar o alerta ao modelo que estava em producao.
     """
     cols = columns or _default_columns(current, include_target=include_target)
     cols = [c for c in cols if c in reference.columns and c in current.columns]
@@ -229,6 +245,8 @@ def run_drift_detection(
         logger,
         "drift_detected",
         batch_name=batch_name,
+        model_version=model_version,
+        min_psi=min_psi,
         dataset_drift=dataset_drift,
         concept_drift=concept_drift,
         n_drifted_columns=n_drifted,

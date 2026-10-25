@@ -35,8 +35,8 @@ from src.drift.detect import run_drift_detection
 from src.drift.performance import assess_auc_drop
 from src.drift.simulate import simulate_production_slices
 from src.logging_utils import get_logger, log_event
+from src.models.metrics import evaluate
 from src.models.predict import load_bundle, score_batch
-from src.models.train import evaluate
 from src.validation.gate import DataContractViolation
 
 logger = get_logger("drift.demo")
@@ -156,6 +156,7 @@ def run_demo(
             report_dir=report_dir,
             drift_share=0.3,
             min_psi=PSI_MODERATE,
+            model_version=bundle["model_version"],
         )
         drift_results[batch_name] = drift.to_dict()
 

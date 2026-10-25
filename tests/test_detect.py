@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from functools import partial
 
+import pytest
+
 from src.drift import detect
-from src.drift.detect import _default_columns, run_drift_detection
+from src.drift.detect import (
+    DriftParsingError,
+    _default_columns,
+    _parse_snapshot,
+    run_drift_detection,
+)
 from src.drift.simulate import apply_concept_drift, apply_data_drift
 from tests.conftest import make_valid_df
 
@@ -99,3 +106,31 @@ def test_cli_reports_drift_and_missing_files(tmp_path, monkeypatch, capsys):
     assert "psi=" in out and "Relatorios:" in out
 
     assert detect.main(["--reference", str(tmp_path / "nope.parquet")]) == 1
+
+
+def test_parse_snapshot_fails_closed_without_value_drift():
+    snapshot = {"metrics": [{"config": {"type": "evidently:metric_v2:Outro"}}]}
+
+    with pytest.raises(DriftParsingError, match="ValueDrift"):
+        _parse_snapshot(snapshot)
+
+
+def test_parse_snapshot_reads_value_drift():
+    snapshot = {
+        "metrics": [
+            {
+                "config": {
+                    "type": "evidently:metric_v2:ValueDrift",
+                    "column": "age_years",
+                    "method": "K-S p_value",
+                    "threshold": 0.05,
+                },
+                "value": 0.01,
+            }
+        ]
+    }
+
+    n_drifted, share, columns = _parse_snapshot(snapshot)
+
+    assert (n_drifted, share) == (1, 1.0)
+    assert columns[0].column == "age_years" and columns[0].drifted

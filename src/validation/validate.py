@@ -13,17 +13,8 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 from src.validation.gate import DataContractViolation, enforce_contract
-
-
-def read_batch(path: Path) -> pd.DataFrame:
-    if path.suffix == ".parquet":
-        return pd.read_parquet(path)
-    if path.suffix == ".csv":
-        return pd.read_csv(path)
-    raise ValueError(f"Formato nao suportado: {path.suffix} (use .csv ou .parquet)")
+from src.validation.io import read_batch
 
 
 def main(argv: list[str] | None = None) -> int:

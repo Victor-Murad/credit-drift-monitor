@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from src.models.features import add_ratio_features, model_input
+from src.models.metrics import evaluate, ks_statistic
 from src.models.predict import score_batch
-from src.models.train import evaluate, ks_statistic, train_models
+from src.models.train import train_models
 from src.validation.gate import DataContractViolation
 from tests.conftest import make_valid_df
 

@@ -16,7 +16,8 @@ dependencies = [
     "numpy>=1.26",
     "pyarrow>=17.0",
     # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adrs/0004)
-    "evidently>=0.7",
+    # Teto <0.8: o parser de detect.py le nomes internos do Snapshot.
+    "evidently>=0.7,<0.8",
 ]
 
 [dependency-groups]
@@ -63,6 +64,14 @@ name = "Dominio nao importa frameworks web/HTTP/ORM"
 type = "forbidden"
 source_modules = ["src.config", "src.validation.contract", "src.models.features"]
 forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "httpx"]
+
+[[tool.importlinter.contracts]]
+name = "Camadas: drift -> models -> validation (nunca o inverso)"
+type = "layers"
+layers = ["src.drift", "src.models", "src.validation"]
+# A demo do contrato e orquestracao (pontua um lote com o modelo): fica no
+# topo de fato, embora more em src.validation.
+ignore_imports = ["src.validation.demo -> src.models.predict"]
 
 [tool.coverage.run]
 source = ["src"]

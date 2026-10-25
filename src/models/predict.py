@@ -22,15 +22,22 @@ import pandas as pd
 from src.config import ID_COLUMN, MODEL_FILE, PRODUCTION_DIR, TARGET_COLUMN
 from src.logging_utils import get_logger, log_event
 from src.models.features import model_input
+from src.models.integrity import ModelIntegrityError, verify_model_integrity
 from src.validation.gate import DataContractViolation, enforce_contract
-from src.validation.validate import read_batch
+from src.validation.io import read_batch
 
 logger = get_logger("models.predict")
 
 
 def load_bundle(path: Path = MODEL_FILE) -> dict:
+    """Carrega o bundle somente se o sha256 bater com o registrado no treino."""
     if not path.exists():
         sys.exit(f"Modelo nao encontrado em {path}. Rode `make train` antes.")
+    try:
+        verify_model_integrity(path)
+    except ModelIntegrityError as exc:
+        sys.exit(f"Modelo recusado: {exc}")
+    # joblib e pickle: so desserializamos o arquivo cujo hash foi conferido acima.
     return joblib.load(path)
 
 
