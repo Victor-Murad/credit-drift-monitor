@@ -1,9 +1,11 @@
 """Deteccao de Data Drift e Concept Drift com Evidently (ADR-0004).
 
 Compara o Dataset de Referencia com um lote de producao (t0 / t1 / t2).
-O preset `DataDriftPreset` gera `ValueDrift` por coluna; a coluna `target`
-entra no mesmo relatorio para evidenciar Concept Drift (mudanca na
-distribuicao do rotulo / relacao X->y).
+O preset `DataDriftPreset` gera `ValueDrift` por coluna (KS / chi-quadrado);
+o PSI (src/drift/psi.py) acompanha cada coluna como medida de tamanho do
+efeito. A coluna `target` entra no mesmo relatorio, mas o teste sobre ela
+detecta apenas mudanca de PREVALENCIA do rotulo (label shift); a degradacao
+de performance (queda de ROC-AUC) esta em src/drift/performance.py.
 
     uv run python -m src.drift.detect \\
         --reference data/reference/reference.parquet \\
@@ -31,6 +33,7 @@ from src.config import (
     REFERENCE_FILE,
     TARGET_COLUMN,
 )
+from src.drift.psi import population_stability_index, psi_level
 from src.drift.report import write_drift_reports
 from src.logging_utils import get_logger, log_event
 
@@ -44,6 +47,8 @@ class ColumnDrift:
     statistic: float
     threshold: float
     drifted: bool
+    psi: float | None = None
+    psi_level: str | None = None
 
 
 @dataclass
@@ -148,9 +153,16 @@ def run_drift_detection(
     include_target: bool = True,
     drift_share: float = 0.3,
     threshold: float = 0.05,
+    min_psi: float | None = None,
     report_dir: Path | None = DRIFT_REPORTS_DIR,
 ) -> DriftResult:
-    """Roda Evidently DataDriftPreset e grava relatorios HTML/JSON."""
+    """Roda Evidently DataDriftPreset e grava relatorios HTML/JSON.
+
+    Todo `ColumnDrift` recebe o PSI. Por padrao a decisao `drifted` segue so o
+    p-valor; com `min_psi` (ex.: `PSI_MODERATE`) a coluna so e marcada quando
+    o teste e significativo E o efeito e relevante, o que elimina alertas de
+    ruido em amostras grandes (ADR-0005).
+    """
     cols = columns or _default_columns(current, include_target=include_target)
     cols = [c for c in cols if c in reference.columns and c in current.columns]
     if not cols:
@@ -176,6 +188,13 @@ def run_drift_detection(
     duration_ms = (time.perf_counter() - started) * 1000
 
     n_drifted_preset, share_preset, column_results = _parse_snapshot(snapshot.dict())
+    for col in column_results:
+        col.psi = round(
+            population_stability_index(reference[col.column], current[col.column]), 6
+        )
+        col.psi_level = psi_level(col.psi)
+        if min_psi is not None and col.psi < min_psi:
+            col.drifted = False
     # Preferimos a contagem a partir dos ValueDrift (p < threshold), que e
     # a mesma regra usada no sumario por coluna; o DriftedColumnsCount do
     # Evidently fica como fallback.
@@ -227,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reference", type=Path, default=REFERENCE_FILE)
     parser.add_argument("--current", type=Path, default=PRODUCTION_T1_FILE)
     parser.add_argument("--batch-name", type=str, default=None)
+    parser.add_argument(
+        "--min-psi",
+        type=float,
+        default=None,
+        help="so marca drift se PSI >= valor (ex.: 0.10); padrao: so p-valor",
+    )
     args = parser.parse_args(argv)
 
     for path in (args.reference, args.current):
@@ -238,7 +263,9 @@ def main(argv: list[str] | None = None) -> int:
     current = pd.read_parquet(args.current)
     batch_name = args.batch_name or args.current.stem
 
-    result = run_drift_detection(reference, current, batch_name=batch_name)
+    result = run_drift_detection(
+        reference, current, batch_name=batch_name, min_psi=args.min_psi
+    )
     status = "DATASET_DRIFT" if result.dataset_drift else "ESTAVEL"
     print(
         f"[{status}] lote={result.batch_name} "
@@ -249,7 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     for col in result.column_results:
         flag = "DRIFT" if col.drifted else "ok"
         print(
-            f"  [{flag}] {col.column}: {col.method}={col.statistic} (thr={col.threshold})"
+            f"  [{flag}] {col.column}: {col.method}={col.statistic} "
+            f"(thr={col.threshold}) psi={col.psi} ({col.psi_level})"
         )
     if result.report_paths:
         print("Relatorios:", ", ".join(result.report_paths.values()))

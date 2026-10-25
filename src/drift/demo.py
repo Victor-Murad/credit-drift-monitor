@@ -24,6 +24,7 @@ from src.config import (
     PRODUCTION_BASE_FILE,
     PRODUCTION_T1_FILE,
     PRODUCTION_T2_FILE,
+    PSI_MODERATE,
     REFERENCE_FILE,
     SEED,
     TARGET_COLUMN,
@@ -31,6 +32,7 @@ from src.config import (
     set_global_seed,
 )
 from src.drift.detect import run_drift_detection
+from src.drift.performance import assess_auc_drop
 from src.drift.simulate import simulate_production_slices
 from src.logging_utils import get_logger, log_event
 from src.models.predict import load_bundle, score_batch
@@ -153,16 +155,26 @@ def run_demo(
             columns=DEMO_DRIFT_COLUMNS,
             report_dir=report_dir,
             drift_share=0.3,
+            min_psi=PSI_MODERATE,
         )
         drift_results[batch_name] = drift.to_dict()
+
+    # Sinal de concept drift baseado em performance: queda de AUC vs. t0.
+    baseline_auc = score_results["production_t0"]["metrics"]["roc_auc"]
+    performance = {
+        name: assess_auc_drop(baseline_auc, res["metrics"]["roc_auc"]).to_dict()
+        for name, res in score_results.items()
+    }
 
     summary = {
         "generated_at": datetime.now(tz=UTC).isoformat(),
         "seed": SEED,
         "evidently_sample_size": evidently_sample,
+        "min_psi": PSI_MODERATE,
         "model_version": bundle["model_version"],
         "slices": score_results,
         "drift": drift_results,
+        "performance": performance,
     }
 
     summary_json = report_dir / "drift_demo_summary.json"
@@ -182,8 +194,17 @@ def run_demo(
         t2_concept_drift=drift_results["production_t2_concept_drift"]["concept_drift"],
         t0_auc=score_results["production_t0"]["metrics"]["roc_auc"],
         t2_auc=score_results["production_t2_concept_drift"]["metrics"]["roc_auc"],
+        t2_auc_drop=performance["production_t2_concept_drift"]["drop"],
+        t2_performance_degraded=performance["production_t2_concept_drift"]["degraded"],
     )
     return summary
+
+
+def _performance_row(name: str, perf: dict) -> str:
+    return (
+        f"| `{name}` | {perf['current']:.4f} | {perf['drop']:.4f} | "
+        f"{perf['threshold']:.2f} | {'SIM' if perf['degraded'] else 'nao'} |"
+    )
 
 
 def _render_markdown(summary: dict) -> str:
@@ -196,7 +217,14 @@ def _render_markdown(summary: dict) -> str:
     def drift_row(name: str) -> str:
         d = drift[name]
         cols = (
-            ", ".join(c["column"] for c in d["column_results"] if c["drifted"]) or "—"
+            ", ".join(
+                f"{c['column']} (PSI {c['psi']:.2f})"
+                if c.get("psi") is not None
+                else c["column"]
+                for c in d["column_results"]
+                if c["drifted"]
+            )
+            or "—"
         )
         return (
             f"| `{name}` | {'SIM' if d['dataset_drift'] else 'nao'} | "
@@ -231,11 +259,29 @@ def _render_markdown(summary: dict) -> str:
         "",
         "## Detecção Evidently (vs Dataset de Referência)",
         "",
-        "| Fatia | Dataset drift | Colunas driftadas | Concept drift (`target`) | Colunas |",
+        "| Fatia | Dataset drift | Colunas driftadas | Label shift (`target`) | Colunas |",
         "|---|---|---|---|---|",
         drift_row("production_t0"),
         drift_row("production_t1_data_drift"),
         drift_row("production_t2_concept_drift"),
+        "",
+        f"> Coluna marcada = KS/chi² significativo **e** PSI ≥ {summary['min_psi']:.2f} "
+        "(filtra ruído de amostra grande; ADR-0005).",
+        "",
+        "> **Como ler:** o teste sobre `target` detecta só mudança na *prevalência* "
+        "do rótulo (label/prior shift), não mudança em P(y|X). O PSI é o tamanho do "
+        "efeito (< 0,10 estável · 0,10–0,25 moderado · ≥ 0,25 significativo): KS "
+        "marcado com PSI baixo é provável ruído de amostra grande.",
+        "",
+        "## Degradação de performance (sinal de Concept Drift)",
+        "",
+        "| Fatia | ROC-AUC | Queda vs t0 | Limiar | Modelo degradado |",
+        "|---|---|---|---|---|",
+        *[_performance_row(name, p) for name, p in summary["performance"].items()],
+        "",
+        "A queda de ROC-AUC com rótulos de feedback é o sinal confiável de concept "
+        "drift: mede se o modelo passou a errar mais, independentemente de o rótulo "
+        "ter mudado de prevalência.",
         "",
         "## Artefatos",
         "",
@@ -250,7 +296,8 @@ def _render_markdown(summary: dict) -> str:
         "marcou drift nas variáveis importantes (`annuity_amount`, `ext_source_3`).",
         "2. **`income_total` pode driftar sem derrubar o modelo** (importância baixa).",
         "3. **Concept drift** (t2) altera o rótulo e degrada AUC / inadimplência "
-        "da carteira aprovada mesmo com o mesmo pipeline.",
+        "da carteira aprovada mesmo com o mesmo pipeline; o alerta confiável é a "
+        "queda de AUC, não o teste sobre `target`.",
         "",
     ]
     return "\n".join(lines)

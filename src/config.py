@@ -177,3 +177,15 @@ RATIO_FEATURES = [
 AUDIT_COLUMNS = ["gender"]
 
 MODEL_INPUT_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
+
+# --------------------------------------------------------------------------
+# Limiares de monitoramento (Etapa 2 -- ver docs/adrs/0005)
+# --------------------------------------------------------------------------
+# PSI: convencao de mercado (credit scoring). < 0,10 estavel; 0,10-0,25
+# moderado; >= 0,25 mudanca significativa.
+PSI_MODERATE = 0.10
+PSI_SIGNIFICANT = 0.25
+# Queda de ROC-AUC (vs. baseline) a partir da qual a performance do modelo
+# e considerada degradada -- sinal de concept drift que nao depende do `target`
+# ter mudado de prevalencia.
+AUC_DROP_ALERT = 0.05

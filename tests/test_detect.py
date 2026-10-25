@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from src.drift.detect import run_drift_detection
+from functools import partial
+
+from src.drift import detect
+from src.drift.detect import _default_columns, run_drift_detection
 from src.drift.simulate import apply_concept_drift, apply_data_drift
 from tests.conftest import make_valid_df
 
@@ -68,3 +71,31 @@ def test_stable_split_has_little_or_no_drift(tmp_path) -> None:
     # Split aleatorio da mesma geracao: tipicamente sem dataset drift.
     # Aceitamos dataset_drift False OU poucas colunas (nao todas).
     assert result.n_drifted_columns < len(result.columns_checked)
+
+
+def test_default_columns_prefers_monitored_features_and_optional_target():
+    df = make_valid_df(n=50, seed=5)
+    with_target = _default_columns(df, include_target=True)
+    without_target = _default_columns(df, include_target=False)
+    assert "annuity_amount" in with_target
+    assert "target" in with_target
+    assert "target" not in without_target
+
+
+def test_cli_reports_drift_and_missing_files(tmp_path, monkeypatch, capsys):
+    reference = make_valid_df(n=400, seed=1)
+    ref_path, cur_path = tmp_path / "ref.parquet", tmp_path / "cur.parquet"
+    reference.to_parquet(ref_path)
+    apply_data_drift(reference).to_parquet(cur_path)
+    monkeypatch.setattr(
+        detect,
+        "run_drift_detection",
+        partial(run_drift_detection, report_dir=tmp_path / "reports"),
+    )
+
+    args = ["--reference", str(ref_path), "--current", str(cur_path)]
+    assert detect.main([*args, "--min-psi", "0.1"]) == 0
+    out = capsys.readouterr().out
+    assert "psi=" in out and "Relatorios:" in out
+
+    assert detect.main(["--reference", str(tmp_path / "nope.parquet")]) == 1
