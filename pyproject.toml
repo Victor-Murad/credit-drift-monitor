@@ -16,7 +16,7 @@ dependencies = [
     "numpy>=1.26",
     "pyarrow>=17.0",
     # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adrs/0004)
-    "evidently>=0.4.40",
+    "evidently>=0.7",
 ]
 
 [dependency-groups]
@@ -68,8 +68,8 @@ forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "ht
 source = ["src"]
 
 [tool.coverage.report]
-# Catraca: cobertura atual 68% (meta 80%). Nunca reduzir; subir a cada PR.
-fail_under = 68
+# Meta do repositorio: >= 80%. Cobertura atual ~95%; nunca reduzir.
+fail_under = 80
 show_missing = true
 
 [tool.pytest.ini_options]
