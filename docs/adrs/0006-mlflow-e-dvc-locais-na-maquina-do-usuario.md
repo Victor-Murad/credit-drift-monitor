@@ -35,7 +35,8 @@ O usuário decidiu adotar **MLflow** (rastreio de execuções, métricas e artef
 
 - **MLflow** com *tracking store* e *artifact store* em disco local (diretório ignorado pelo git). Sem servidor remoto.
 - **DVC** com remoto **local** (diretório na máquina do usuário, fora do repositório) ou sem remoto. Nada de `dvc push` para serviços externos.
-- Os arquivos `.dvc` e `dvc.lock` (apenas hashes e metadados, sem dados) podem ir para o git; os dados, o modelo e o `mlruns/` ficam fora do git.
+- Os arquivos `.dvc` e `dvc.lock` (apenas hashes e metadados, sem dados) podem ir para o git; os datasets (`data/`), o cache do DVC e o `mlruns/` ficam fora do git.
+- O modelo baseline (`models/`, ~800 KB) e os relatórios (`reports/`) **continuam no git**: o checklist da Etapa 3 (3.4) exige consolidá-los no repositório como evidência, e não contêm dados do Kaggle.
 
 ### Motivos do escopo local
 
@@ -61,7 +62,7 @@ O usuário decidiu adotar **MLflow** (rastreio de execuções, métricas e artef
 
 | Risco mapeado | Impacto | Mitigação |
 | :--- | :---: | :--- |
-| Dado versionado vazar para o git | Alto | `data/`, `models/`, `mlruns/` e o cache do DVC no `.gitignore`; teste ou hook que falhe se aparecerem no índice |
+| Dado versionado vazar para o git | Alto | `data/`, `mlruns/` e o cache do DVC no `.gitignore`; teste que falhe se arquivos de `data/` (fora os `.gitkeep`) aparecerem no índice do git |
 | Remoto externo configurado por engano | Alto | Documentar o remoto local no README e não commitar `.dvc/config.local` |
 | Terceiro não conseguir reproduzir | Médio | README explica que o dataset deve ser baixado do Kaggle e como rodar `dvc repro` |
 
