@@ -115,30 +115,32 @@ uv run python -m src.drift.demo          # simular drift + pontuar + Evidently
 uv run pytest
 ```
 
-| `make` | Equivalente sem make |
-|---|---|
-| `make setup` | `uv sync` |
-| `make download-data` | `uv run python -m src.data.download` |
-| `make data` | `uv run python -m src.data.prepare` |
-| `make train` | `uv run python -m src.models.train` |
-| `make contract-demo` | `uv run python -m src.validation.demo` |
-| `make validate INPUT=arq.csv` | `uv run python -m src.validation.validate --input arq.csv` |
-| `make predict INPUT=arq.csv` | `uv run python -m src.models.predict --input arq.csv` |
-| `make etapa1` | os três comandos do passo 3 |
-| `make simulate-drift` | `uv run python -m src.drift.simulate` |
-| `make detect-drift CURRENT=...` | `uv run python -m src.drift.detect --current ...` |
-| `make drift-demo` / `make etapa2` | `uv run python -m src.drift.demo` |
-| `make test` | `uv run pytest` |
+| `make`                              | Equivalente sem make                                                 |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `make setup`                        | `uv sync`                                                          |
+| `make download-data`                | `uv run python -m src.data.download`                               |
+| `make data`                         | `uv run python -m src.data.prepare`                                |
+| `make train`                        | `uv run python -m src.models.train`                                |
+| `make contract-demo`                | `uv run python -m src.validation.demo`                             |
+| `make validate INPUT=arq.csv`       | `uv run python -m src.validation.validate --input arq.csv`         |
+| `make predict INPUT=arq.csv`        | `uv run python -m src.models.predict --input arq.csv`              |
+| `make etapa1`                       | os três comandos do passo 3                                         |
+| `make simulate-drift`               | `uv run python -m src.drift.simulate`                              |
+| `make detect-drift CURRENT=...`     | `uv run python -m src.drift.detect --current ... [--min-psi 0.10]` |
+| `make drift-demo` / `make etapa2` | `uv run python -m src.drift.demo`                                  |
+| `make test`                         | `uv run pytest`                                                    |
+
+Qualidade: `make lint` (Ruff + import-linter) e `make test-cov` (cobertura ≥ 80%, hoje ~95%). Os testes usam dados sintéticos e rodam o pipeline inteiro em sandbox, sem Kaggle.
 
 Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e as dependências estão travadas no `uv.lock`.
 
 ### Problemas comuns no Windows
 
-| Sintoma | Causa | Solução |
-|---|---|---|
-| `Uma política de Controle de Aplicativo bloqueou este arquivo` (os error 4551 / `DLL load failed`) | O **Smart App Control** do Windows 11 bloqueia as DLLs do pandas/numpy | Desligar em *Segurança do Windows → Controle de aplicativos e do navegador → Smart App Control* |
-| `ModuleNotFoundError: sklearn...` mesmo com o arquivo existindo | O caminho passa de 260 caracteres (limite do Windows) | Clonar o repositório numa pasta de caminho curto (ex.: `C:\dev\`) ou ativar *Long Paths* no Windows |
-| `403 Forbidden` no download do Kaggle | As regras da competição não foram aceitas | Clicar em *Late Submission → I Understand and Accept* na página da competição |
+| Sintoma                                                                                                 | Causa                                                                        | Solução                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Uma política de Controle de Aplicativo bloqueou este arquivo` (os error 4551 / `DLL load failed`) | O **Smart App Control** do Windows 11 bloqueia as DLLs do pandas/numpy | Desligar em *Segurança do Windows → Controle de aplicativos e do navegador → Smart App Control*     |
+| `ModuleNotFoundError: sklearn...` mesmo com o arquivo existindo                                       | O caminho passa de 260 caracteres (limite do Windows)                        | Clonar o repositório numa pasta de caminho curto (ex.: `C:\dev\`) ou ativar *Long Paths* no Windows |
+| `403 Forbidden` no download do Kaggle                                                                 | As regras da competição não foram aceitas                                 | Clicar em *Late Submission → I Understand and Accept* na página da competição                      |
 
 ## Etapa 1 — Validação de Dados e Contratos
 
@@ -153,13 +155,13 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 **Resultados:**
 
-| | |
-|---|---|
-| Registros brutos rejeitados pelo contrato | 21 de 307.511 (renda de 117 mi, gênero `XNA`, parcela nula…) |
-| Dataset de Referência / Produção t0 | 215.243 / 92.247 linhas (default 8,07% em ambos) |
-| Baseline XGBoost (teste) | ROC-AUC **0,749** · Gini **0,499** · KS **0,370** (Regressão Logística: AUC 0,731) |
-| Impacto no negócio | aprova 65% dos pedidos, e a inadimplência da carteira cai de 8,07% para **3,92%** |
-| Demonstração do contrato | lote válido **APROVADO** (500 pontuados); lote sujo **BLOQUEADO** (0 pontuados); **10 de 10** defeitos detectados |
+|                                           |                                                                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Registros brutos rejeitados pelo contrato | 21 de 307.511 (renda de 117 mi, gênero `XNA`, parcela nula…)                                                                     |
+| Dataset de Referência / Produção t0    | 215.243 / 92.247 linhas (default 8,07% em ambos)                                                                                     |
+| Baseline XGBoost (teste)                  | ROC-AUC **0,749** · Gini **0,498** · KS **0,371** (Regressão Logística: AUC 0,731)                             |
+| Impacto no negócio                       | aprova 65% dos pedidos, e a inadimplência da carteira cai de 8,07% para **3,88%**                                             |
+| Demonstração do contrato                | lote válido **APROVADO** (500 pontuados); lote sujo **BLOQUEADO** (0 pontuados); **10 de 10** defeitos detectados |
 
 ## Etapa 2 — Simulação e Detecção de Drift
 
@@ -169,18 +171,22 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 - **Simulação:** [`src/drift/simulate.py`](src/drift/simulate.py) — a partir de `production_base.parquet`, gera t1 (data drift em `annuity_amount`, `ext_source_3`, `income_total`) e t2 (data + concept drift no `target`), com clip para continuar passando no contrato.
 - **Detecção (Evidently):** [`src/drift/detect.py`](src/drift/detect.py) — compara cada fatia com a Referência (`DataDriftPreset`, KS / chi-square). [ADR-0004](docs/adrs/0004-evidently-drift-detection.md).
+- **Tamanho do efeito (PSI):** [`src/drift/psi.py`](src/drift/psi.py) — PSI em toda coluna (< 0,10 estável · 0,10–0,25 moderado · ≥ 0,25 significativo). `--min-psi 0.10` só marca drift quando o KS é significativo **e** o efeito é relevante, evitando falso alerta em amostra grande. [ADR-0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md).
+- **Concept drift por performance:** [`src/drift/performance.py`](src/drift/performance.py) — queda de ROC-AUC vs. baseline (alerta a partir de 0,05).
 - **Demo ponta a ponta:** [`src/drift/demo.py`](src/drift/demo.py) / `make etapa2` — gate → score → Evidently → [`reports/drift/drift_demo_summary.md`](reports/drift/drift_demo_summary.md).
 
 **Resultados (Home Credit, seed 42, 92.247 linhas):**
 
-| | |
-|---|---|
-| Gate em t0 / t1 / t2 | todos **APROVADOS** (drift ≠ dado inválido) |
-| Evidently t0 | sem dataset drift (AUC **0,753**, alinhado ao baseline) |
-| Evidently t1 | **Data Drift** em `annuity_amount`, `ext_source_3`, `income_total` (AUC 0,722) |
-| Evidently t2 | Data Drift + **Concept Drift** (`target`) (AUC **0,573**) |
-| Impacto no negócio | default na carteira aprovada: 3,76% (t0) → **9,82%** (t2) |
-| Lição | t1 detecta drift com queda leve de AUC; t2 (concept) degrada de fato |
+|                      |                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Gate em t0 / t1 / t2 | todos **APROVADOS** (drift ≠ dado inválido)                                        |
+| Evidently t0         | sem dataset drift (AUC **0,753**, alinhado ao baseline)                              |
+| Evidently t1         | **Data Drift** em `annuity_amount` (PSI 0,17), `ext_source_3` (0,97), `income_total` (0,76); AUC 0,722 |
+| Evidently t2         | mesmo Data Drift; label shift em `target` com efeito desprezível (PSI 0,02); **queda de AUC 0,181 → modelo degradado** (AUC **0,572**) |
+| Impacto no negócio  | default na carteira aprovada: 3,74% (t0) → **9,84%** (t2)                           |
+| Lição              | t1 detecta drift com queda leve de AUC; t2 (concept) degrada de fato                       |
+
+> **Limitação conhecida (concept drift):** o teste do Evidently sobre `target` mede mudança de *prevalência* do rótulo (label/prior shift), não mudança em P(y|X). O sinal confiável de concept drift é a **queda de ROC-AUC** com rótulos de feedback (`performance` no sumário da demo). Sem rótulos (inferência pura) só é possível monitorar data drift e PSI. Em t0, o KS sozinho marca `annuity_amount` por ruído de amostra grande (PSI 0,00); a demo usa `min_psi=0,10` e, com isso, t0 fica sem nenhuma coluna marcada. Pelo mesmo critério, o teste sobre `target` em t2 deixa de alertar (PSI 0,02) enquanto o AUC cai 0,181: é a prova de que só a performance revela o concept drift.
 
 ## Etapa 3 — Observabilidade de Pipelines e Modelos
 
@@ -192,12 +198,13 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 ## Decisões de arquitetura (ADRs)
 
-| ADR | Decisão |
-|---|---|
-| [0001](docs/adrs/0001-dataset-home-credit.md) | Dataset Home Credit Default Risk (German Credit tem < 5.000 linhas) |
-| [0002](docs/adrs/0002-pandera-data-contracts.md) | Data Contracts com Pandera (e não Great Expectations) |
-| [0003](docs/adrs/0003-modelo-baseline-xgboost.md) | Baseline XGBoost em Pipeline scikit-learn, threshold por KS |
-| [0004](docs/adrs/0004-evidently-drift-detection.md) | Detecção de Data/Concept Drift com Evidently |
+| ADR                                                              | Decisão                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [0001](docs/adrs/0001-dataset-home-credit.md)                     | Dataset Home Credit Default Risk (German Credit tem < 5.000 linhas) |
+| [0002](docs/adrs/0002-pandera-data-contracts.md)                  | Data Contracts com Pandera (e não Great Expectations)              |
+| [0003](docs/adrs/0003-modelo-baseline-xgboost.md)                 | Baseline XGBoost em Pipeline scikit-learn, threshold por KS         |
+| [0004](docs/adrs/0004-evidently-drift-detection.md)               | Detecção de Data/Concept Drift com Evidently                      |
+| [0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md) | PSI e queda de ROC-AUC como sinais complementares ao KS             |
 
 ## Vídeo STAR
 
@@ -205,11 +212,11 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 ## Equipe
 
-| Integrante | RM | Responsabilidade |
-|---|---|---|
-| Victor Murad | _preencher_ | Etapa 1 — Validação de dados, contratos e baseline |
-| VonLuqi | _preencher_ | Etapa 2 — Drift |
-| _a definir_ | | Etapa 3 — Observabilidade |
-| _a definir_ | | Etapa 4 — Governança e vídeo |
+| Integrante    | RM            | Responsabilidade                                      |
+| ------------- | ------------- | ----------------------------------------------------- |
+| Victor Murad  | _preencher_ | Etapa 1 — Validação de dados, contratos e baseline |
+| VonLuqi       | _preencher_ | Etapa 2 — Drift                                      |
+| _a definir_ |               | Etapa 3 — Observabilidade                            |
+| _a definir_ |               | Etapa 4 — Governança e vídeo                       |
 
 Convenção de commits e fluxo de trabalho: [`CONTRIBUTING.md`](CONTRIBUTING.md).
