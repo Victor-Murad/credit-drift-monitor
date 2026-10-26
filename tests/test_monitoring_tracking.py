@@ -11,6 +11,7 @@ from pathlib import Path
 import mlflow
 import pytest
 from mlflow import MlflowClient
+from mlflow.exceptions import MlflowException
 
 from src import config
 from src.monitoring import tracking
@@ -27,11 +28,9 @@ from src.monitoring.tracking import (
 
 
 @pytest.fixture(autouse=True)
-def _sem_run_ativo():
-    """Nenhum run ativo do MLflow vaza de um teste para o outro."""
+def _sem_estado_mlflow(mlflow_isolado):
+    """Nenhum run ativo, URI, experimento ou variável do MLflow vaza entre testes."""
     yield
-    while mlflow.active_run() is not None:
-        mlflow.end_run()
 
 
 @pytest.fixture
@@ -272,25 +271,43 @@ def test_reexecucao_com_mesmo_pipeline_run_id_acumula_runs(tracking_env, log_fil
         ),
         ("http://admin:segredo123@host:5000/", "http://***@host:5000/"),
         ("https://user@host/api", "https://***@host/api"),
+        ("https://host/api?token=segredo123&x=1#frag", "https://host/api?***"),
+        ("https://host/api#segredo123", "https://host/api#***"),
+        # Senha com caracteres reservados sem percent-encoding.
+        ("postgresql://u:pa/segredo123@h/db", "postgresql://***@h/db"),
+        ("postgresql://u:p?segredo123@h/db", "postgresql://***@h/db"),
+        ("postgresql://u:p#segredo123@h/db", "postgresql://***@h/db"),
+        ("postgresql://u:p@segredo123@h/db", "postgresql://***@h/db"),
         (
-            "https://host/api?token=segredo123&x=1#frag",
-            "https://host/api?token=***&x=***",
+            "postgresql://h/db?password=segredo123&sslpassword=segredo123",
+            "postgresql://h/db?***",
         ),
+        ("https://h/api?token=segredo123", "https://h/api?***"),
+        ("http://u:segredo123@h/x?token=segredo123", "http://***@h/x?***"),
         ("sqlite:////abs/mlflow.db", "sqlite:////abs/mlflow.db"),
         ("sqlite:///rel/mlflow.db", "sqlite:///rel/mlflow.db"),
-        ("/caminho/local/mlruns", "/caminho/local/mlruns"),
+        # Sem `esquema://`: falha fechada (só o esquema, ou nada).
+        ("/caminho/segredo123/mlruns", "***"),
+        ("databricks:segredo123", "databricks:***"),
+        ("segredo123", "***"),
+        ("", "***"),
     ],
 )
 def test_redact_uri_remove_credenciais(uri, esperado):
-    assert redact_uri(uri) == esperado
+    redigida = redact_uri(uri)
+    assert redigida == esperado
+    assert "segredo123" not in redigida
 
 
 @pytest.mark.parametrize(
     "uri",
     [
-        # Sem o driver do PostgreSQL instalado: ImportError.
+        # Depende do ambiente: sem `psycopg` instalado dá ImportError; com ele, o
+        # host `.invalid` não resolve e dá SQLAlchemyError. Os dois são convertidos.
         "postgresql://admin:segredo123@host.invalid/db",
-        # Servidor fora do ar: a MlflowException do cliente repete a URI crua.
+        # Depende de nada escutar na porta 9 local e de
+        # MLFLOW_HTTP_REQUEST_MAX_RETRIES=0 (definido abaixo) para falhar rápido. A
+        # MlflowException do cliente repete a URI crua no texto.
         "http://admin:segredo123@127.0.0.1:9/",
     ],
 )
@@ -333,9 +350,105 @@ def test_registro_final_falha_com_estagio_ok_levanta(
     tracking_env, log_file, monkeypatch
 ):
     with pytest.raises(TrackingUnavailableError, match="MONITORING_TRACKING=off"):
-        with tracked_stage("train", pipeline_run_id="pipe-8"):
+        with tracked_stage("train", pipeline_run_id="pipe-8") as run:
             _quebrar_mlflow(monkeypatch)
     assert mlflow.active_run() is None
+    # O registro final não aconteceu: o run não pode ficar como FINISHED.
+    assert _client(tracking_env).get_run(run.run_id).info.status == "FAILED"
+
+
+def _quebrar_end_run(monkeypatch) -> None:
+    def _falhar(self, run_id, status=None, end_time=None):
+        raise MlflowException("API request to http://admin:segredo123@host failed")
+
+    monkeypatch.setattr(MlflowClient, "set_terminated", _falhar)
+
+
+def _capturar_eventos(monkeypatch) -> list[dict]:
+    eventos: list[dict] = []
+
+    def _registrar(_logger, event, level=None, message=None, **fields):
+        eventos.append({"event": event, "message": message, **fields})
+
+    monkeypatch.setattr(tracking, "log_event", _registrar)
+    return eventos
+
+
+def test_end_run_falha_com_estagio_ok_levanta_erro_redigido(
+    tracking_env, log_file, monkeypatch
+):
+    eventos = _capturar_eventos(monkeypatch)
+    with pytest.raises(TrackingUnavailableError) as erro:
+        with tracked_stage("train", pipeline_run_id="pipe-10"):
+            _quebrar_end_run(monkeypatch)
+    assert "MONITORING_TRACKING=off" in str(erro.value)
+    persistido = str(erro.value) + json.dumps(eventos, ensure_ascii=False)
+    assert "segredo123" not in persistido
+    assert "admin:" not in persistido
+    assert mlflow.active_run() is None
+
+
+def test_end_run_falha_nao_mascara_systemexit_do_estagio(
+    tracking_env, log_file, monkeypatch
+):
+    eventos = _capturar_eventos(monkeypatch)
+    saida = SystemExit(3)
+    with pytest.raises(SystemExit) as capturada:
+        with tracked_stage("train", pipeline_run_id="pipe-11"):
+            _quebrar_end_run(monkeypatch)
+            raise saida
+    assert capturada.value is saida
+    assert capturada.value.code == 3
+    assert "stage_failure_not_recorded" in [e["event"] for e in eventos]
+    assert "segredo123" not in json.dumps(eventos, ensure_ascii=False)
+    assert mlflow.active_run() is None
+
+
+def test_attach_de_arquivo_inexistente_nao_culpa_o_mlflow(
+    tracking_env, log_file, tmp_path
+):
+    with pytest.raises(FileNotFoundError, match="não encontrado") as erro:
+        with tracked_stage("train", pipeline_run_id="pipe-12") as run:
+            run.attach(tmp_path / "sumiu.json")
+    assert not isinstance(erro.value, TrackingUnavailableError)
+    assert "MONITORING_TRACKING" not in str(erro.value)
+    assert _client(tracking_env).get_run(run.run_id).info.status == "FAILED"
+
+
+@pytest.mark.parametrize("campo", ["artifacts", "batch_path"])
+def test_log_batch_com_caminho_inexistente_nao_culpa_o_mlflow(
+    tracking_env, log_file, tmp_path, campo
+):
+    sumido = tmp_path / "sumiu.parquet"
+    valor = [sumido] if campo == "artifacts" else sumido
+    record = _record("t0", AlertLevel.OK, **{campo: valor})
+    with pytest.raises(FileNotFoundError, match="não encontrado") as erro:
+        with tracked_stage("drift_demo", pipeline_run_id="pipe-13") as run:
+            run.log_batch(record)
+    assert "MONITORING_TRACKING" not in str(erro.value)
+    client = _client(tracking_env)
+    filhos = client.search_runs(
+        [client.get_run(run.run_id).info.experiment_id],
+        filter_string="tags.run_type = 'batch'",
+    )
+    assert filhos == []
+
+
+def test_estado_global_do_mlflow_e_restaurado(tmp_path, monkeypatch, log_file):
+    """A ordem dos testes não importa: o ambiente volta ao que era antes."""
+    from tests.conftest import MLFLOW_ENV_VARS, isolar_estado_mlflow
+
+    antes = {nome: os.environ.get(nome) for nome in MLFLOW_ENV_VARS}
+    uri_ruim = "sqlite:////proc/inexistente/mlflow.db"
+    monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri_ruim)
+    monkeypatch.delenv("MONITORING_TRACKING", raising=False)
+    with isolar_estado_mlflow():
+        with pytest.raises(TrackingUnavailableError):
+            configure_tracking()
+        # Sem o isolamento, o próprio MLflow deixaria isto no ambiente.
+        assert os.environ["MLFLOW_TRACKING_URI"] == uri_ruim
+    assert {nome: os.environ.get(nome) for nome in MLFLOW_ENV_VARS} == antes
+    assert mlflow.get_tracking_uri() != uri_ruim
 
 
 def test_registro_final_falha_nao_mascara_erro_do_estagio(

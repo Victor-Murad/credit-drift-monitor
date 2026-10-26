@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import tempfile
 import time
 from collections.abc import Iterator
@@ -24,7 +25,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
 
 import mlflow
 from mlflow import MlflowClient
@@ -47,6 +47,8 @@ _TRACKING_ERRORS = (MlflowException, SQLAlchemyError, OSError, ImportError)
 _DRIFT_LEVELS = frozenset({AlertLevel.ATENCAO, AlertLevel.CRITICO})
 _REASON_SEPARATOR = ";"
 _REDACTED = "***"
+_URI_WITH_AUTHORITY = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)(.*)$", re.DOTALL)
+_URI_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
 
 
 class TrackingUnavailableError(RuntimeError):
@@ -54,26 +56,27 @@ class TrackingUnavailableError(RuntimeError):
 
 
 def redact_uri(uri: str) -> str:
-    """URI sem credenciais, para mensagens, logs e tags.
+    """URI sem credenciais, para mensagens, logs e tags. Redigir a mais é seguro.
 
-    Troca o *userinfo* (`usuario:senha@`) por `***@`, os valores da *query string*
-    (tokens) por `***` e descarta o fragmento. Caminhos locais e URIs sem nada a
-    esconder (como `sqlite:///...`) voltam iguais.
+    - Tudo entre `esquema://` e a ÚLTIMA `@` vira `***@` (a senha pode ter `/`,
+      `?`, `#` ou `@` sem percent-encoding, o que engana o `urlsplit`).
+    - A *query string* inteira (chaves e valores) vira `?***`; o fragmento, `#***`.
+    - Falha fechada: o que não tem a forma `esquema://` volta só como
+      `esquema:***` (se houver esquema) ou `***`, nunca como texto cru.
+
+    URIs sem nada a esconder, como `sqlite:///caminho/mlflow.db`, voltam iguais.
     """
-    partes = urlsplit(uri)
-    if not partes.scheme:
-        return uri
-    redigida = uri
-    if "@" in partes.netloc:
-        host = partes.netloc.rpartition("@")[2]
-        redigida = redigida.replace(partes.netloc, f"{_REDACTED}@{host}", 1)
-    if partes.fragment:
-        redigida = redigida.removesuffix(f"#{partes.fragment}")
-    if partes.query:
-        chaves = parse_qsl(partes.query, keep_blank_values=True)
-        query = "&".join(f"{chave}={_REDACTED}" for chave, _ in chaves)
-        redigida = redigida.replace(f"?{partes.query}", f"?{query}", 1)
-    return redigida
+    com_autoridade = _URI_WITH_AUTHORITY.match(uri)
+    if com_autoridade is None:
+        so_esquema = _URI_SCHEME.match(uri)
+        return f"{so_esquema.group(1)}:{_REDACTED}" if so_esquema else _REDACTED
+    esquema, resto = com_autoridade.groups()
+    if "@" in resto:
+        resto = f"{_REDACTED}@{resto.rpartition('@')[2]}"
+    corte = min((i for i in (resto.find("?"), resto.find("#")) if i >= 0), default=-1)
+    if corte >= 0:
+        resto = f"{resto[:corte]}{resto[corte]}{_REDACTED}"
+    return f"{esquema}{resto}"
 
 
 def tracking_enabled() -> bool:
@@ -217,6 +220,14 @@ def _batch_metrics(record: BatchRecord) -> dict[str, float]:
     return metricas
 
 
+def _require_path(path: Path, o_que: str) -> Path:
+    """Confere um caminho local antes de falar com o MLflow."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"{o_que} não encontrado: {path}")
+    return path
+
+
 def _log_path(run_id: str, path: Path, artifact_path: str | None) -> None:
     client = _client()
     if path.is_dir():
@@ -250,9 +261,13 @@ class StageRun:
             _client().log_metric(self.run_id, key, float(value))
 
     def attach(self, path: Path, *, artifact_path: str | None = None) -> None:
-        """Anexa um arquivo (ou diretório) ao run de estágio."""
+        """Anexa um arquivo (ou diretório) ao run de estágio.
+
+        Caminho inexistente é erro local (`FileNotFoundError`), não do MLflow.
+        """
+        path = _require_path(path, "Artefato")
         with _tracking_errors("Falha ao anexar artefato"):
-            _log_path(self.run_id, Path(path), artifact_path)
+            _log_path(self.run_id, path, artifact_path)
 
     def log_batch(self, record: BatchRecord) -> str | None:
         """Cria o run filho do lote e atualiza os contadores do estágio.
@@ -261,7 +276,15 @@ class StageRun:
         `rows_rejected` e conta em `alerts_failure_count`, mesmo com
         `intentional_demo=True` (o alerta é real, §4.1). `ATENÇÃO`/`CRÍTICO`
         contam em `alerts_drift_count`. Devolve o `run_id` do filho.
+
+        `batch_path` e `artifacts` são conferidos (e o hash do lote calculado) antes
+        de abrir o run: caminho inexistente é `FileNotFoundError`, sem run filho.
         """
+        artefatos = [_require_path(a, "Artefato do lote") for a in record.artifacts]
+        if record.batch_path is not None:
+            _require_path(record.batch_path, "Lote")
+        tags = _batch_tags(record)
+        metricas = _batch_metrics(record)
         with (
             _tracking_errors("Falha ao registrar o lote"),
             mlflow.start_run(
@@ -269,12 +292,12 @@ class StageRun:
                 run_name=record.batch_name,
                 nested=True,
                 parent_run_id=self.run_id,
-                tags=_batch_tags(record),
+                tags=tags,
             ) as filho,
         ):
-            mlflow.log_metrics(_batch_metrics(record))
-            for artefato in record.artifacts:
-                _log_path(filho.info.run_id, Path(artefato), "reports")
+            mlflow.log_metrics(metricas)
+            for artefato in artefatos:
+                _log_path(filho.info.run_id, artefato, "reports")
 
         level = record.decision.level
         self._rows_processed += record.n_rows
@@ -416,30 +439,57 @@ def _close_stage(
     pipeline_run_id: str,
     since: datetime,
 ) -> None:
-    """Fecha o run de estágio sem mascarar a exceção original do estágio."""
+    """Fecha o run de estágio sem mascarar a exceção original do estágio.
+
+    Registro final e encerramento passam por `_tracking_errors` (mensagem redigida).
+    Estágio OK com registro falho: o run termina `FAILED` e a primeira
+    `TrackingUnavailableError` é levantada. Estágio que já falhou: a exceção dele
+    sai intacta e a falha do registro vai só para o log.
+    """
+    erro: TrackingUnavailableError | None = None
+    registrado = False
     try:
-        run._finish(
-            succeeded=succeeded,
-            duration_s=duration_s,
-            pipeline_run_id=pipeline_run_id,
-            since=since,
-        )
-    except TrackingUnavailableError:
-        if succeeded:
-            raise
-        # O estágio já falhou: a exceção dele é a que deve sair. A falha do
-        # registro já foi para o log por `_tracking_errors`.
-        log_event(
-            logger,
-            "stage_failure_not_recorded",
-            level=logging.ERROR,
-            stage=run._stage,
-            mlflow_run_id=run.run_id,
-        )
+        try:
+            run._finish(
+                succeeded=succeeded,
+                duration_s=duration_s,
+                pipeline_run_id=pipeline_run_id,
+                since=since,
+            )
+            registrado = True
+        except TrackingUnavailableError as exc:
+            erro = exc
     finally:
-        # Encerra o run do estágio (e um filho que tenha ficado aberto), sem
-        # tocar num run que o chamador já tivesse aberto antes.
-        while (ativo := mlflow.active_run()) is not None:
-            mlflow.end_run(status="FINISHED" if succeeded else "FAILED")
-            if ativo.info.run_id == run.run_id:
-                break
+        status = "FINISHED" if succeeded and registrado else "FAILED"
+        erro_ao_encerrar = _end_stage_runs(run, status)
+        erro = erro or erro_ao_encerrar
+    if erro is None:
+        return
+    if succeeded:
+        raise erro
+    log_event(
+        logger,
+        "stage_failure_not_recorded",
+        level=logging.ERROR,
+        stage=run._stage,
+        mlflow_run_id=run.run_id,
+    )
+
+
+def _end_stage_runs(run: StageRun, status: str) -> TrackingUnavailableError | None:
+    """Encerra o run do estágio (e um filho que tenha ficado aberto).
+
+    Não toca num run que o chamador já tivesse aberto antes. O `end_run` do MLflow
+    tira o run da pilha antes de gravar o término, então o laço avança mesmo se a
+    gravação falhar; a primeira falha é devolvida (já redigida), não levantada.
+    """
+    primeiro: TrackingUnavailableError | None = None
+    while (ativo := mlflow.active_run()) is not None:
+        try:
+            with _tracking_errors("Falha ao encerrar o run do estágio"):
+                mlflow.end_run(status=status)
+        except TrackingUnavailableError as exc:
+            primeiro = primeiro or exc
+        if ativo.info.run_id == run.run_id:
+            break
+    return primeiro

@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 # Antes de qualquer import de `src`: os testes nao escrevem no log real do
@@ -101,8 +103,50 @@ def _banco_modelo_mlflow(tmp_path_factory) -> Path:
     return caminho
 
 
+# Variaveis que o proprio MLflow grava no os.environ (set_tracking_uri,
+# set_registry_uri, set_experiment, start_run) para subprocessos herdarem.
+MLFLOW_ENV_VARS = (
+    "MLFLOW_TRACKING_URI",
+    "MLFLOW_REGISTRY_URI",
+    "MLFLOW_EXPERIMENT_ID",
+    "MLFLOW_RUN_ID",
+)
+
+
+@contextmanager
+def isolar_estado_mlflow() -> Iterator[None]:
+    """Desfaz o estado global do MLflow ao sair: runs ativos, URIs, experimento, ambiente.
+
+    Sem isso, um teste que configurou um banco inexistente (ou uma URI com senha)
+    deixaria o `os.environ` e o cliente fluente apontando para ela nos seguintes.
+    """
+    import mlflow
+    from mlflow.tracking import fluent
+
+    antes = {nome: os.environ.get(nome) for nome in MLFLOW_ENV_VARS}
+    try:
+        yield
+    finally:
+        while mlflow.active_run() is not None:
+            mlflow.end_run()
+        mlflow.set_tracking_uri(None)
+        mlflow.set_registry_uri(None)
+        fluent._active_experiment_id = None
+        for nome, valor in antes.items():
+            if valor is None:
+                os.environ.pop(nome, None)
+            else:
+                os.environ[nome] = valor
+
+
 @pytest.fixture
-def tracking_env(tmp_path, monkeypatch, _banco_modelo_mlflow) -> str:
+def mlflow_isolado() -> Iterator[None]:
+    with isolar_estado_mlflow():
+        yield
+
+
+@pytest.fixture
+def tracking_env(tmp_path, monkeypatch, mlflow_isolado, _banco_modelo_mlflow) -> str:
     """Aponta o MLflow para um banco novo e isolado em `tmp_path`; devolve o URI."""
     banco = tmp_path / "mlflow.db"
     shutil.copy(_banco_modelo_mlflow, banco)
