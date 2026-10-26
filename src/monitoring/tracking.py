@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import mlflow
 from mlflow import MlflowClient
@@ -40,13 +41,39 @@ from src.monitoring.resources import peak_memory_mb
 logger = get_logger("monitoring.tracking")
 
 TRACKING_ENV_VAR = "MONITORING_TRACKING"
-_TRACKING_ERRORS = (MlflowException, SQLAlchemyError, OSError)
+# ImportError: URI de banco cujo driver não está instalado (ex.: `postgresql://`
+# sem `psycopg`) também é "MLflow inacessível" e deve falhar fechado.
+_TRACKING_ERRORS = (MlflowException, SQLAlchemyError, OSError, ImportError)
 _DRIFT_LEVELS = frozenset({AlertLevel.ATENCAO, AlertLevel.CRITICO})
 _REASON_SEPARATOR = ";"
+_REDACTED = "***"
 
 
 class TrackingUnavailableError(RuntimeError):
     """O MLflow não está acessível ou o registro falhou (falha fechada)."""
+
+
+def redact_uri(uri: str) -> str:
+    """URI sem credenciais, para mensagens, logs e tags.
+
+    Troca o *userinfo* (`usuario:senha@`) por `***@`, os valores da *query string*
+    (tokens) por `***` e descarta o fragmento. Caminhos locais e URIs sem nada a
+    esconder (como `sqlite:///...`) voltam iguais.
+    """
+    partes = urlsplit(uri)
+    if not partes.scheme:
+        return uri
+    redigida = uri
+    if "@" in partes.netloc:
+        host = partes.netloc.rpartition("@")[2]
+        redigida = redigida.replace(partes.netloc, f"{_REDACTED}@{host}", 1)
+    if partes.fragment:
+        redigida = redigida.removesuffix(f"#{partes.fragment}")
+    if partes.query:
+        chaves = parse_qsl(partes.query, keep_blank_values=True)
+        query = "&".join(f"{chave}={_REDACTED}" for chave, _ in chaves)
+        redigida = redigida.replace(f"?{partes.query}", f"?{query}", 1)
+    return redigida
 
 
 def tracking_enabled() -> bool:
@@ -54,17 +81,31 @@ def tracking_enabled() -> bool:
     return os.environ.get(TRACKING_ENV_VAR, "").strip().lower() != "off"
 
 
+def _describe_error(exc: BaseException) -> str:
+    """Tipo do erro e, para `OSError`, o `strerror` (sem caminho nem URI)."""
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"{type(exc).__name__} ({exc.strerror})"
+    if isinstance(exc, ImportError) and exc.name:
+        return f"{type(exc).__name__} (driver ausente: {exc.name})"
+    return type(exc).__name__
+
+
 @contextmanager
 def _tracking_errors(contexto: str) -> Iterator[None]:
-    """Converte erros de conexão/permissão do MLflow em `TrackingUnavailableError`."""
-    uri = config.MLFLOW_TRACKING_URI
+    """Converte erros de conexão/permissão do MLflow em `TrackingUnavailableError`.
+
+    A mensagem e o evento de log levam só a URI redigida e uma descrição curta do
+    erro: o texto do driver/cliente pode repetir a URI crua (com credenciais) e por
+    isso fica apenas na cadeia `__cause__`, que não é persistida.
+    """
+    uri = redact_uri(config.MLFLOW_TRACKING_URI)
     try:
         yield
     except _TRACKING_ERRORS as exc:
         mensagem = (
-            f"{contexto} (MLflow em {uri}): {exc}. O pipeline não segue sem registro "
-            f"(falha fechada); para rodar sem rastreamento, defina "
-            f"{TRACKING_ENV_VAR}=off."
+            f"{contexto} (MLflow em {uri}): {_describe_error(exc)}. O pipeline não "
+            f"segue sem registro (falha fechada); para rodar sem rastreamento, "
+            f"defina {TRACKING_ENV_VAR}=off."
         )
         log_event(
             logger,

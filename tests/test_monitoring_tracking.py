@@ -20,6 +20,7 @@ from src.monitoring.tracking import (
     NullStageRun,
     TrackingUnavailableError,
     configure_tracking,
+    redact_uri,
     tracked_stage,
     tracking_enabled,
 )
@@ -260,6 +261,65 @@ def test_reexecucao_com_mesmo_pipeline_run_id_acumula_runs(tracking_env, log_fil
     )
     assert sorted(r.info.run_id for r in achados) == sorted(ids)
     assert len(set(ids)) == 2
+
+
+@pytest.mark.parametrize(
+    ("uri", "esperado"),
+    [
+        (
+            "postgresql://admin:segredo123@host/db",
+            "postgresql://***@host/db",
+        ),
+        ("http://admin:segredo123@host:5000/", "http://***@host:5000/"),
+        ("https://user@host/api", "https://***@host/api"),
+        (
+            "https://host/api?token=segredo123&x=1#frag",
+            "https://host/api?token=***&x=***",
+        ),
+        ("sqlite:////abs/mlflow.db", "sqlite:////abs/mlflow.db"),
+        ("sqlite:///rel/mlflow.db", "sqlite:///rel/mlflow.db"),
+        ("/caminho/local/mlruns", "/caminho/local/mlruns"),
+    ],
+)
+def test_redact_uri_remove_credenciais(uri, esperado):
+    assert redact_uri(uri) == esperado
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        # Sem o driver do PostgreSQL instalado: ImportError.
+        "postgresql://admin:segredo123@host.invalid/db",
+        # Servidor fora do ar: a MlflowException do cliente repete a URI crua.
+        "http://admin:segredo123@127.0.0.1:9/",
+    ],
+)
+def test_falha_de_tracking_nao_vaza_credenciais(tmp_path, monkeypatch, log_file, uri):
+    monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setattr(config, "MLFLOW_ARTIFACT_ROOT", tmp_path / "mlartifacts")
+    monkeypatch.delenv("MONITORING_TRACKING", raising=False)
+    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "0")
+    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_TIMEOUT", "2")
+    eventos: list[dict] = []
+
+    def _registrar(_logger, event, level=None, message=None, **fields):
+        eventos.append({"event": event, "message": message, **fields})
+
+    monkeypatch.setattr(tracking, "log_event", _registrar)
+
+    with pytest.raises(TrackingUnavailableError) as erro:
+        with tracked_stage("train"):
+            pass
+
+    persistido = str(erro.value) + json.dumps(eventos, ensure_ascii=False)
+    assert "segredo123" not in persistido
+    assert "admin:" not in persistido
+    assert "MONITORING_TRACKING=off" in str(erro.value)
+    assert redact_uri(uri) in str(erro.value)
+    assert [
+        e["tracking_uri"] for e in eventos if e["event"] == "tracking_unavailable"
+    ] == [redact_uri(uri)]
+    assert mlflow.active_run() is None
 
 
 def _quebrar_mlflow(monkeypatch) -> None:
