@@ -1,4 +1,4 @@
-"""Deteccao de Data Drift e Concept Drift com Evidently (ADR-0004).
+"""Deteccao de Data Drift e Label Shift com Evidently (ADR-0004).
 
 Compara o Dataset de Referencia com um lote de producao (t0 / t1 / t2).
 O preset `DataDriftPreset` gera `ValueDrift` por coluna (KS / chi-quadrado);
@@ -69,12 +69,22 @@ class DriftResult:
     drifted_share: float
     dataset_drift: bool
     column_results: list[ColumnDrift] = field(default_factory=list)
-    concept_drift: bool = False
+    label_shift: bool = False
     duration_ms: float = 0.0
     report_paths: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Serializa o resultado (JSON dos relatorios e sumario da demo).
+
+        `label_shift` indica mudanca de prevalencia do `target` (PSI/KS), nao
+        concept drift: este e a queda de desempenho (`performance.degraded`,
+        ADR-0005). `concept_drift` e emitido com o mesmo valor so por
+        compatibilidade com relatorios antigos e e OBSOLETO: sera removido na
+        Etapa 4.
+        """
+        payload = asdict(self)
+        payload["concept_drift"] = self.label_shift
+        return payload
 
 
 def _default_columns(df: pd.DataFrame, *, include_target: bool) -> list[str]:
@@ -220,8 +230,8 @@ def run_drift_detection(
     else:
         n_drifted, share = n_drifted_preset, share_preset
     dataset_drift = share >= drift_share
-    concept = next((c for c in column_results if c.column == TARGET_COLUMN), None)
-    concept_drift = bool(concept and concept.drifted)
+    target_col = next((c for c in column_results if c.column == TARGET_COLUMN), None)
+    label_shift = bool(target_col and target_col.drifted)
 
     result = DriftResult(
         batch_name=batch_name,
@@ -232,7 +242,7 @@ def run_drift_detection(
         drifted_share=round(share, 4),
         dataset_drift=dataset_drift,
         column_results=column_results,
-        concept_drift=concept_drift,
+        label_shift=label_shift,
         duration_ms=round(duration_ms, 2),
     )
 
@@ -248,7 +258,7 @@ def run_drift_detection(
         model_version=model_version,
         min_psi=min_psi,
         dataset_drift=dataset_drift,
-        concept_drift=concept_drift,
+        label_shift=label_shift,
         n_drifted_columns=n_drifted,
         drifted_share=round(share, 4),
         duration_ms=result.duration_ms,
@@ -259,7 +269,7 @@ def run_drift_detection(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Detecta Data/Concept Drift (Evidently) entre referencia e corrente."
+        description="Detecta Data Drift e Label Shift (Evidently) entre referencia e corrente."
     )
     parser.add_argument("--reference", type=Path, default=REFERENCE_FILE)
     parser.add_argument("--current", type=Path, default=PRODUCTION_T1_FILE)
@@ -289,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         f"[{status}] lote={result.batch_name} "
         f"colunas_driftadas={result.n_drifted_columns}/{len(result.columns_checked)} "
         f"share={result.drifted_share:.2%} "
-        f"concept_drift={result.concept_drift}"
+        f"label_shift={result.label_shift}"
     )
     for col in result.column_results:
         flag = "DRIFT" if col.drifted else "ok"

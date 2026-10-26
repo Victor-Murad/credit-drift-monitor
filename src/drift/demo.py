@@ -236,7 +236,7 @@ def run_demo(
         status="SUCCESS",
         summary_md=project_relative(summary_md),
         t1_dataset_drift=drift_results["production_t1_data_drift"]["dataset_drift"],
-        t2_concept_drift=drift_results["production_t2_concept_drift"]["concept_drift"],
+        t2_label_shift=drift_results["production_t2_concept_drift"]["label_shift"],
         t0_auc=score_results["production_t0"]["metrics"]["roc_auc"],
         t2_auc=score_results["production_t2_concept_drift"]["metrics"]["roc_auc"],
         t2_auc_drop=performance["production_t2_concept_drift"]["drop"],
@@ -274,7 +274,7 @@ def _render_markdown(summary: dict) -> str:
         return (
             f"| `{name}` | {'SIM' if d['dataset_drift'] else 'nao'} | "
             f"{d['n_drifted_columns']}/{len(d['columns_checked'])} | "
-            f"{'SIM' if d['concept_drift'] else 'nao'} | {cols} |"
+            f"{'SIM' if d['label_shift'] else 'nao'} | {cols} |"
         )
 
     lines = [

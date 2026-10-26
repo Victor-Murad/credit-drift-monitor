@@ -112,7 +112,7 @@ def _drift(nome: str, colunas: dict[str, bool]) -> DriftResult:
         drifted_share=n / len(colunas),
         dataset_drift=False,
         column_results=resultados,
-        concept_drift=colunas.get("target", False),
+        label_shift=colunas.get("target", False),
     )
 
 
