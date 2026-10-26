@@ -286,7 +286,11 @@ Modelo oficial: **{metadata["official_model"]}**.
 """
 
 
-def main() -> None:
+def main() -> tuple[dict, dict]:
+    """Treina, grava os artefatos e devolve `(bundle, metadata)` (como gravados).
+
+    O retorno serve ao estágio rastreado (`src.monitoring.stage`); o CLI ignora.
+    """
     set_global_seed()
     reference = pd.read_parquet(REFERENCE_FILE)
     # Gate: o treino so acontece se a referencia cumprir o contrato rotulado.
@@ -323,6 +327,7 @@ def main() -> None:
         file=project_relative(MODEL_FILE),
         roc_auc=metadata["models"]["xgboost"]["test_metrics"]["roc_auc"],
     )
+    return bundle, metadata
 
 
 if __name__ == "__main__":
