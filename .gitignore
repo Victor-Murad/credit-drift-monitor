@@ -28,6 +28,14 @@ data/quarantine/*
 data/samples/*
 !data/**/.gitkeep
 
+# Observabilidade local (Etapa 3): banco e artefatos do MLflow, estado local do DVC
+mlflow.db
+mlartifacts
+mlruns
+.dvc/config.local
+.dvc/cache
+.dvc/tmp
+
 # Logs de execucao (as evidencias versionadas ficam em reports/)
 logs/
 

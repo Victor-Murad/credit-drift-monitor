@@ -18,6 +18,9 @@ dependencies = [
     # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adrs/0004)
     # Teto <0.8: o parser de detect.py le nomes internos do Snapshot.
     "evidently>=0.7,<0.8",
+    # Observabilidade e Model Registry locais (Etapa 3 -- ver docs/adrs/0006)
+    # Teto <4: a API de aliases do Registry e o backend SQLite sao os da 3.x.
+    "mlflow>=3.0,<4",
 ]
 
 [dependency-groups]
@@ -34,6 +37,8 @@ dev = [
     "pyyaml>=6.0",
     "import-linter>=2.0",
     "pytest-xdist>=3.8.0",
+    # Versionamento local dos dados (Etapa 3 -- ver docs/adrs/0006); so dev.
+    "dvc>=3.50,<4",
 ]
 
 [tool.uv]
@@ -66,12 +71,24 @@ source_modules = ["src.config", "src.validation.contract", "src.models.features"
 forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "httpx"]
 
 [[tool.importlinter.contracts]]
-name = "Camadas: drift -> models -> validation (nunca o inverso)"
+name = "Camadas: monitoring -> drift -> models -> validation (nunca o inverso)"
 type = "layers"
-layers = ["src.drift", "src.models", "src.validation"]
+layers = ["src.monitoring", "src.drift", "src.models", "src.validation"]
 # A demo do contrato e orquestracao (pontua um lote com o modelo): fica no
 # topo de fato, embora more em src.validation.
 ignore_imports = ["src.validation.demo -> src.models.predict"]
+
+[[tool.importlinter.contracts]]
+name = "MLflow/DVC so na camada de monitoring"
+type = "forbidden"
+source_modules = [
+    "src.drift",
+    "src.models",
+    "src.validation",
+    "src.data",
+    "src.config",
+]
+forbidden_modules = ["mlflow", "dvc"]
 
 [tool.coverage.run]
 source = ["src"]

@@ -8,19 +8,29 @@ esquema e um sinal aprendivel (ext_source baixo -> mais default).
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
 # Antes de qualquer import de `src`: os testes nao escrevem no log real do
-# pipeline (logs/pipeline.jsonl), que sera centralizado na Etapa 3.
+# pipeline (logs/pipeline.jsonl), que sera centralizado na Etapa 3, nem tocam
+# o mlflow.db/mlartifacts reais (os padroes abaixo apontam para um diretorio
+# temporario da sessao).
 os.environ["PIPELINE_LOG_FILE"] = str(
     Path(tempfile.gettempdir()) / "credit-drift-monitor-tests.jsonl"
+)
+os.environ["MLFLOW_ARTIFACT_ROOT"] = str(
+    Path(tempfile.mkdtemp(prefix="credit-drift-monitor-tests-")) / "mlartifacts"
+)
+os.environ["MLFLOW_TRACKING_URI"] = (
+    f"sqlite:///{Path(os.environ['MLFLOW_ARTIFACT_ROOT']).parent / 'mlflow.db'}"
 )
 
 import numpy as np  # noqa: E402
 import pandas as pd
 import pytest
 
+from src import config
 from src.validation import contract as c
 
 
@@ -75,3 +85,32 @@ def valid_df() -> pd.DataFrame:
 @pytest.fixture
 def valid_unlabeled_df() -> pd.DataFrame:
     return make_valid_df(labeled=False)
+
+
+@pytest.fixture(scope="session")
+def _banco_modelo_mlflow(tmp_path_factory) -> Path:
+    """Banco SQLite do MLflow ja migrado, criado uma vez por sessao.
+
+    A migracao leva ~2,4 s; copiar o arquivo para cada teste e quase instantaneo.
+    """
+    from mlflow import MlflowClient
+
+    caminho = tmp_path_factory.mktemp("mlflow-modelo") / "modelo.db"
+    uri = f"sqlite:///{caminho}"
+    MlflowClient(tracking_uri=uri, registry_uri=uri).search_experiments()
+    return caminho
+
+
+@pytest.fixture
+def tracking_env(tmp_path, monkeypatch, _banco_modelo_mlflow) -> str:
+    """Aponta o MLflow para um banco novo e isolado em `tmp_path`; devolve o URI."""
+    banco = tmp_path / "mlflow.db"
+    shutil.copy(_banco_modelo_mlflow, banco)
+    uri = f"sqlite:///{banco}"
+    artefatos = tmp_path / "mlartifacts"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setenv("MLFLOW_ARTIFACT_ROOT", str(artefatos))
+    # `src.config` le o ambiente na importacao: reatribui as constantes tambem.
+    monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setattr(config, "MLFLOW_ARTIFACT_ROOT", artefatos)
+    return uri

@@ -88,10 +88,37 @@ VALID_BATCH_FILE = SAMPLES_DIR / "valid_batch.csv"
 MODEL_FILE = MODELS_DIR / "baseline_model.joblib"
 MODEL_METADATA_FILE = MODELS_DIR / "baseline_metadata.json"
 
+# Modelo campeao em producao (Etapa 3): copia local do que o Registry marca
+# com o alias `champion`.
+CHAMPION_DIR = MODELS_DIR / "champion"
+CHAMPION_FILE = CHAMPION_DIR / "baseline_model.joblib"
+CHAMPION_METADATA_FILE = CHAMPION_DIR / "baseline_metadata.json"
+
 # Sobrescrevivel por variavel de ambiente (os testes usam um arquivo temporario).
 PIPELINE_LOG_FILE = Path(
     os.environ.get("PIPELINE_LOG_FILE", LOGS_DIR / "pipeline.jsonl")
 )
+
+# --------------------------------------------------------------------------
+# Observabilidade e Model Registry locais (Etapa 3 -- ver docs/adrs/0006)
+# --------------------------------------------------------------------------
+MLFLOW_EXPERIMENT = "credit-drift-monitor"
+# Caminhos absolutos a partir de ROOT_DIR: o worktree e o checkout principal
+# nao divergem. Sobrescreviveis por variavel de ambiente (os testes usam um
+# diretorio temporario e nunca tocam o mlflow.db real).
+MLFLOW_TRACKING_URI = os.environ.get(
+    "MLFLOW_TRACKING_URI", f"sqlite:///{ROOT_DIR / 'mlflow.db'}"
+)
+MLFLOW_ARTIFACT_ROOT = Path(
+    os.environ.get("MLFLOW_ARTIFACT_ROOT", ROOT_DIR / "mlartifacts")
+)
+REGISTERED_MODEL_NAME = "credit-default-xgboost"
+# Politica de promocao challenger -> champion: ganho minimo de ROC-AUC exigido
+# e regressao maxima tolerada nas metricas de guarda.
+PROMOTION_MIN_GAIN = 0.02
+PROMOTION_MAX_REGRESSION = 0.02
+# Faixas (quantis do baseline) usadas no PSI do score do modelo.
+SCORE_PSI_BINS = 10
 
 # --------------------------------------------------------------------------
 # Particionamento
