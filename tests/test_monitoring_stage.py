@@ -239,7 +239,7 @@ def test_stage_tracking_off_executa_sem_mlflow(
     assert not caminhos.champion.exists()
 
 
-@pytest.mark.parametrize("nome", ["drift_demo", "contract_demo", "inexistente"])
+@pytest.mark.parametrize("nome", ["contract_demo", "inexistente"])
 def test_stage_desconhecido_e_erro_de_uso(nome, capsys):
     with pytest.raises(SystemExit) as saida:
         stage.main([nome])

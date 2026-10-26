@@ -19,24 +19,54 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from src.config import ID_COLUMN, MODEL_FILE, PRODUCTION_DIR, TARGET_COLUMN
+from src import config
+from src.config import ID_COLUMN, PRODUCTION_DIR, TARGET_COLUMN
 from src.logging_utils import get_logger, log_event
 from src.models.features import model_input
-from src.models.integrity import ModelIntegrityError, verify_model_integrity
+from src.models.integrity import (
+    ModelIntegrityError,
+    file_sha256,
+    verify_model_integrity,
+)
 from src.validation.gate import DataContractViolation, enforce_contract
 from src.validation.io import read_batch
 
 logger = get_logger("models.predict")
 
 
-def load_bundle(path: Path = MODEL_FILE) -> dict:
-    """Carrega o bundle somente se o sha256 bater com o registrado no treino."""
+def default_model_path() -> Path:
+    """Champion servido (`models/champion/`) se existir; senão o bundle do treino.
+
+    Os caminhos de `src.config` são lidos na chamada (os testes os redirecionam).
+    """
+    champion = Path(config.CHAMPION_FILE)
+    return champion if champion.exists() else Path(config.MODEL_FILE)
+
+
+def load_bundle(
+    path: Path | None = None, *, expected_sha256: str | None = None
+) -> dict:
+    """Carrega o bundle somente se o sha256 bater com o registrado no treino.
+
+    `path=None` usa `default_model_path()`. Com `expected_sha256` (ex.: a tag
+    `model_sha256` do champion no Model Registry), o arquivo também tem de ter esse
+    hash; divergência encerra com "Modelo recusado" sem desserializar nada.
+    """
+    path = Path(path) if path is not None else default_model_path()
     if not path.exists():
         sys.exit(f"Modelo nao encontrado em {path}. Rode `make train` antes.")
     try:
         verify_model_integrity(path)
     except ModelIntegrityError as exc:
         sys.exit(f"Modelo recusado: {exc}")
+    if expected_sha256 is not None:
+        obtido = file_sha256(path)
+        if obtido != expected_sha256:
+            sys.exit(
+                f"Modelo recusado: sha256 de {path} diverge do esperado "
+                f"(esperado {expected_sha256[:12]}..., obtido {obtido[:12]}...). "
+                "O arquivo não é o champion registrado no Model Registry."
+            )
     # joblib e pickle: so desserializamos o arquivo cujo hash foi conferido acima.
     return joblib.load(path)
 

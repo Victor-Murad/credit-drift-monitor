@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,7 +33,7 @@ from src.config import (
     project_relative,
     set_global_seed,
 )
-from src.drift.detect import run_drift_detection
+from src.drift.detect import DriftResult, run_drift_detection
 from src.drift.performance import assess_auc_drop
 from src.drift.simulate import simulate_production_slices
 from src.logging_utils import get_logger, log_event
@@ -95,26 +97,59 @@ def _score_slice(
     return scored, metrics
 
 
+@dataclass(frozen=True)
+class BatchObservation:
+    """O que a demo sabe de um lote depois de pontuá-lo e detectar drift.
+
+    Entregue ao gancho `on_batch` de `run_demo` (o estágio `drift_demo` o usa para
+    registrar o lote no MLflow; esta camada não conhece o MLflow). `scored` traz
+    `default_probability` (e `target`, se o lote for rotulado); `metrics` é a saída
+    de `evaluate`; `batch_path` é o arquivo do lote avaliado.
+    """
+
+    batch_name: str
+    scored: pd.DataFrame
+    metrics: dict
+    drift: DriftResult
+    report_dir: Path
+    model_version: str
+    batch_path: Path | None = None
+
+
 def run_demo(
     *,
     report_dir: Path = DRIFT_REPORTS_DIR,
     evidently_sample: int = EVIDENTLY_SAMPLE_SIZE,
+    on_batch: Callable[[BatchObservation], None] | None = None,
+    bundle_loader: Callable[[], dict] | None = None,
 ) -> dict:
+    """Simula t1/t2, pontua t0/t1/t2, detecta drift e grava o sumário.
+
+    `on_batch` é chamado uma vez por lote, na ordem t0, t1, t2, depois das métricas
+    e da detecção. `bundle_loader` carrega o modelo (padrão: `load_bundle()`, que
+    prefere o champion servido); sem ele, o bundle do treino tem de existir.
+    """
     set_global_seed(SEED)
 
-    for required in (PRODUCTION_BASE_FILE, REFERENCE_FILE, MODEL_FILE):
-        if not required.exists():
+    required = [PRODUCTION_BASE_FILE, REFERENCE_FILE]
+    if bundle_loader is None:
+        required.append(MODEL_FILE)
+    for path in required:
+        if not path.exists():
             sys.exit(
-                f"Artefato ausente: {required}. Rode `make etapa1` (data + train) antes."
+                f"Artefato ausente: {path}. Rode `make etapa1` (data + train) antes."
             )
 
     report_dir.mkdir(parents=True, exist_ok=True)
     gate_report_dir = report_dir / "contract_gate"
     gate_report_dir.mkdir(parents=True, exist_ok=True)
 
+    # O modelo é conferido (e recusado, se for o caso) antes de simular as fatias.
+    bundle = (bundle_loader or load_bundle)()
+    model_version = str(bundle["model_version"])
+
     # 1. Simular fatias
     paths = simulate_production_slices()
-    bundle = load_bundle()
     reference = pd.read_parquet(REFERENCE_FILE)
 
     slices = [
@@ -156,9 +191,21 @@ def run_demo(
             report_dir=report_dir,
             drift_share=0.3,
             min_psi=PSI_MODERATE,
-            model_version=bundle["model_version"],
+            model_version=model_version,
         )
         drift_results[batch_name] = drift.to_dict()
+        if on_batch is not None:
+            on_batch(
+                BatchObservation(
+                    batch_name=batch_name,
+                    scored=scored,
+                    metrics=metrics,
+                    drift=drift,
+                    report_dir=report_dir,
+                    model_version=model_version,
+                    batch_path=path,
+                )
+            )
 
     # Sinal de concept drift baseado em performance: queda de AUC vs. t0.
     baseline_auc = score_results["production_t0"]["metrics"]["roc_auc"]
