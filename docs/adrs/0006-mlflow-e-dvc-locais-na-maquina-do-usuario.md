@@ -33,7 +33,7 @@ O usuário decidiu adotar **MLflow** (rastreio de execuções, métricas e artef
 
 ## 2. Decisão de Arquitetura
 
-- **MLflow** com *tracking store* e *artifact store* em disco local (diretório ignorado pelo git). Sem servidor remoto.
+- **MLflow** com *tracking store* em SQLite (`mlflow.db`) e *artifact store* em diretório local, ambos ignorados pelo git. O banco é necessário para o Model Registry da extensão de retreino e promoção (ver a spec da Etapa 3). Sem servidor remoto.
 - **DVC** com remoto **local** (diretório na máquina do usuário, fora do repositório) ou sem remoto. Nada de `dvc push` para serviços externos.
 - Os arquivos `.dvc` e `dvc.lock` (apenas hashes e metadados, sem dados) podem ir para o git; os datasets (`data/`), o cache do DVC e o `mlruns/` ficam fora do git.
 - O modelo baseline (`models/`, ~800 KB) e os relatórios (`reports/`) **continuam no git**: o checklist da Etapa 3 (3.4) exige consolidá-los no repositório como evidência, e não contêm dados do Kaggle.
