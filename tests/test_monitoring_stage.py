@@ -247,6 +247,22 @@ def test_stage_desconhecido_e_erro_de_uso(nome, capsys):
     assert "ainda não disponível" in capsys.readouterr().err
 
 
+def test_stage_train_sem_bundle_gravado_orienta_sem_traceback(
+    tracking_env, caminhos, monkeypatch, capsys
+):
+    # Treino "terminou" sem deixar o bundle em disco: erro de domínio, não traceback.
+    monkeypatch.setattr(
+        train,
+        "main",
+        lambda: ({"model_version": "x"}, {"data_lineage": {"reference_rows": 1}}),
+    )
+    assert stage.main(["train"]) == 1
+    saida = capsys.readouterr().err
+    assert "Bundle do modelo não encontrado" in saida
+    assert "make pipeline" in saida
+    assert "Traceback" not in saida
+
+
 def test_train_main_devolve_bundle_e_metadata(caminhos, referencia):
     bundle, metadata = train.main()
     assert bundle["model_version"] == train.MODEL_VERSION

@@ -22,7 +22,6 @@ import pandas as pd
 
 from src.config import (
     DRIFT_REPORTS_DIR,
-    MODEL_FILE,
     PRODUCTION_BASE_FILE,
     PRODUCTION_T1_FILE,
     PRODUCTION_T2_FILE,
@@ -127,14 +126,12 @@ def run_demo(
 
     `on_batch` é chamado uma vez por lote, na ordem t0, t1, t2, depois das métricas
     e da detecção. `bundle_loader` carrega o modelo (padrão: `load_bundle()`, que
-    prefere o champion servido); sem ele, o bundle do treino tem de existir.
+    usa `models/champion/` se existir, senão o bundle do treino, e sai com
+    mensagem se nenhum existir); ele roda antes de simular as fatias.
     """
     set_global_seed(SEED)
 
-    required = [PRODUCTION_BASE_FILE, REFERENCE_FILE]
-    if bundle_loader is None:
-        required.append(MODEL_FILE)
-    for path in required:
+    for path in (PRODUCTION_BASE_FILE, REFERENCE_FILE):
         if not path.exists():
             sys.exit(
                 f"Artefato ausente: {path}. Rode `make etapa1` (data + train) antes."

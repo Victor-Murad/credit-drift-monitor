@@ -26,6 +26,7 @@ from src.drift.detect import ColumnDrift, DriftResult
 from src.models import predict, train
 from src.models.integrity import file_sha256
 from src.monitoring import stage
+from src.monitoring.alerts import ACTIONS, AlertLevel
 from src.validation.gate import enforce_contract
 from tests.conftest import cliente_mlflow, isolar_estado_mlflow, make_valid_df
 
@@ -159,23 +160,57 @@ def test_target_nao_conta_como_coluna_driftada(tmp_path, monkeypatch):
     assert record.decision.level.value == "OK"
 
 
-def test_lote_sem_rotulo_nao_avalia_performance(tmp_path):
+@pytest.mark.parametrize(
+    ("driftou", "nivel"), [(True, "ATENCAO"), (False, "OK")], ids=["drift", "estavel"]
+)
+def test_lote_sem_rotulo_nao_avalia_performance(tmp_path, driftou, nivel):
     run = _RunFalso()
     observador = stage.DriftBatchObserver(run, METADATA_FALSO)
     observador(
         _observacao(
             tmp_path,
             "lote_sem_rotulo",
-            colunas={"ext_source_3": True},
+            colunas={"ext_source_3": driftou},
             rotulado=False,
         )
     )
 
     (record,) = run.records
     assert record.decision.performance_evaluated is False
-    assert record.decision.level.value in {"OK", "ATENCAO"}
+    assert record.decision.level.value == nivel
     assert record.metrics.get("roc_auc") is None
     assert record.metrics.get("auc_drop") is None
+
+
+def test_auc_nao_finita_nao_sai_ok(tmp_path):
+    run = _RunFalso()
+    observador = stage.DriftBatchObserver(run, METADATA_FALSO)
+    obs = _observacao(tmp_path, "production_t0", colunas={"ext_source_3": False})
+    obs.metrics["roc_auc"] = float("nan")
+    observador(obs)
+
+    (record,) = run.records
+    assert record.decision.performance_evaluated is False
+    assert "auc_undefined" in record.decision.reasons
+    assert record.decision.level.value == "ATENCAO"
+    assert record.metrics["roc_auc"] is None
+    assert record.metrics["auc_drop"] is None
+
+
+def test_sem_baseline_no_t0_nao_avalia_t1(tmp_path):
+    run = _RunFalso()
+    observador = stage.DriftBatchObserver(run, METADATA_FALSO)
+    t0 = _observacao(tmp_path, "production_t0", colunas={"ext_source_3": False})
+    t0.scored["target"] = 0  # t0 de classe única: sem AUC de baseline
+    observador(t0)
+    observador(_observacao(tmp_path, "production_t1", colunas={"ext_source_3": False}))
+
+    primeiro, segundo = run.records
+    assert "single_class" in primeiro.decision.reasons
+    assert "no_baseline_auc" in segundo.decision.reasons
+    assert segundo.decision.performance_evaluated is False
+    assert segundo.metrics["roc_auc"] == 0.8
+    assert segundo.metrics["auc_drop"] is None
 
 
 def test_lote_de_classe_unica_registra_single_class(tmp_path):
@@ -208,7 +243,9 @@ def test_lote_vazio_nao_avalia_score_nem_performance(tmp_path):
     assert record.n_rows == 0
     assert record.metrics.get("score_psi") is None
     assert "empty_batch" in record.decision.reasons
-    assert record.decision.level.value == "OK"
+    # Falha cautelosa: lote vazio não é "tudo bem".
+    assert record.decision.level.value == "ATENCAO"
+    assert record.decision.action == ACTIONS[AlertLevel.ATENCAO]
 
 
 # --------------------------------------------------------------------------
@@ -285,7 +322,6 @@ def sandbox(tmp_path_factory, _banco_modelo_mlflow):
         # demo de drift
         mp.setattr(drift_demo, "PRODUCTION_BASE_FILE", p.production)
         mp.setattr(drift_demo, "REFERENCE_FILE", p.reference)
-        mp.setattr(drift_demo, "MODEL_FILE", p.model)
         mp.setattr(drift_demo, "simulate_production_slices", _fatias_controladas(p))
         mp.setattr(
             drift_demo,
@@ -447,3 +483,55 @@ def test_stage_drift_demo_tracking_off_roda_sem_mlflow(
     assert sandbox.simulacoes == antes + 1
     assert not banco.exists()
     assert not (tmp_path / "mlartifacts").exists()
+
+
+def test_run_demo_padrao_aceita_so_o_champion(sandbox, tmp_path, monkeypatch):
+    # Sem o bundle do treino, o carregador padrão usa `models/champion/`.
+    monkeypatch.setattr(config, "MODEL_FILE", tmp_path / "ausente.joblib")
+    vistos: list[BatchObservation] = []
+    drift_demo.run_demo(on_batch=vistos.append)
+    assert [o.batch_name for o in vistos] == LOTES
+
+
+def test_run_demo_sem_modelo_nenhum_sai_antes_de_simular(
+    sandbox, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(config, "MODEL_FILE", tmp_path / "ausente.joblib")
+    monkeypatch.setattr(config, "CHAMPION_FILE", tmp_path / "champion.joblib")
+    antes = sandbox.simulacoes
+    with pytest.raises(SystemExit, match="Modelo nao encontrado"):
+        drift_demo.run_demo()
+    assert sandbox.simulacoes == antes
+
+
+def _champion_com_metadata(sandbox, tmp_path, monkeypatch, estragar) -> None:
+    """Copia o champion para `tmp_path` e estraga o metadata do jeito pedido."""
+    pasta = tmp_path / "champion"
+    shutil.copytree(sandbox.champion, pasta)
+    metadata = pasta / "baseline_metadata.json"
+    if estragar == "ausente":
+        metadata.unlink()
+    elif estragar == "corrompido":
+        metadata.write_text("{ isto não é json", encoding="utf-8")
+    elif estragar == "sem_score_reference":
+        dados = json.loads(metadata.read_text(encoding="utf-8"))
+        del dados["score_reference"]
+        metadata.write_text(json.dumps(dados), encoding="utf-8")
+    monkeypatch.setattr(config, "CHAMPION_DIR", pasta)
+    monkeypatch.setattr(config, "CHAMPION_FILE", pasta / "baseline_model.joblib")
+    monkeypatch.setattr(config, "CHAMPION_METADATA_FILE", metadata)
+
+
+@pytest.mark.parametrize("estragar", ["ausente", "corrompido", "sem_score_reference"])
+def test_stage_drift_demo_metadata_invalido_orienta_sem_traceback(
+    sandbox, tmp_path, monkeypatch, capsys, estragar
+):
+    _champion_com_metadata(sandbox, tmp_path, monkeypatch, estragar)
+    antes = sandbox.simulacoes
+
+    assert stage.main(["drift_demo"]) == 1
+    saida = capsys.readouterr().err
+    assert "Metadata do modelo" in saida
+    assert "make pipeline" in saida
+    assert "Traceback" not in saida
+    assert sandbox.simulacoes == antes, "a demo não pode rodar sem metadata válido"

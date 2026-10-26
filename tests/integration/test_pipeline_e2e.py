@@ -99,7 +99,6 @@ def sandbox(tmp_path_factory):
         mp.setattr(simulate, "PRODUCTION_BASE_FILE", p.production)
         mp.setattr(drift_demo, "PRODUCTION_BASE_FILE", p.production)
         mp.setattr(drift_demo, "REFERENCE_FILE", p.reference)
-        mp.setattr(drift_demo, "MODEL_FILE", p.model)
         mp.setattr(drift_demo, "load_bundle", predict.load_bundle)
         mp.setattr(
             drift_demo,

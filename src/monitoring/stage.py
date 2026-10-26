@@ -26,6 +26,7 @@ import math
 import sys
 import warnings
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -43,7 +44,12 @@ from src.drift.psi import score_psi
 from src.logging_utils import RUN_ID, get_logger, log_event
 from src.models import predict, train
 from src.models.integrity import ModelIntegrityError
-from src.monitoring.alerts import decide_alert_level
+from src.monitoring.alerts import (
+    ACTIONS,
+    AlertDecision,
+    AlertLevel,
+    decide_alert_level,
+)
 from src.monitoring.registry import (
     CHAMPION_ALIAS,
     bootstrap_champion,
@@ -88,6 +94,24 @@ def _training_metrics(metadata: dict) -> dict[str, float]:
     return metricas
 
 
+class StagePreconditionError(RuntimeError):
+    """Pré-condição do estágio não atendida (ex.: sem champion, metadata ausente)."""
+
+
+_REGENERATE_HINT = (
+    "Rode `make pipeline` (ou o estágio `train`: "
+    "`uv run python -m src.monitoring.stage train`) para regerar o modelo."
+)
+
+
+def _stage_file(path: Path, o_que: str) -> Path:
+    """`require_path` com o arquivo ausente como erro de domínio (sem traceback)."""
+    try:
+        return require_path(path, o_que)
+    except FileNotFoundError as exc:
+        raise StagePreconditionError(f"{exc}. {_REGENERATE_HINT}") from exc
+
+
 def run_train(run: StageRun) -> None:
     """Treina o baseline e, com o rastreamento ligado, registra e faz o bootstrap."""
     bundle, metadata = train.main()
@@ -96,8 +120,8 @@ def run_train(run: StageRun) -> None:
         return
 
     # Lidos do módulo na chamada: os testes redirecionam os caminhos do treino.
-    model_path = require_path(train.MODEL_FILE, "Bundle do modelo")
-    metadata_path = require_path(train.MODEL_METADATA_FILE, "Metadata do modelo")
+    model_path = _stage_file(train.MODEL_FILE, "Bundle do modelo")
+    metadata_path = _stage_file(train.MODEL_METADATA_FILE, "Metadata do modelo")
     exemplo = pd.read_parquet(
         train.REFERENCE_FILE, columns=config.MODEL_INPUT_COLUMNS
     ).head(INPUT_EXAMPLE_ROWS)
@@ -149,10 +173,6 @@ def run_train(run: StageRun) -> None:
     _bootstrap(versao, shas)
 
 
-class StagePreconditionError(RuntimeError):
-    """Pré-condição do estágio não atendida (ex.: sem champion no Model Registry)."""
-
-
 # Motivos de "performance não avaliada" (além de `single_class`, da §4.2). Lote sem
 # `target` não leva motivo: `performance_evaluated=false` já o diz, e o lote
 # estável sem rótulo continua `OK`.
@@ -160,6 +180,17 @@ REASON_SINGLE_CLASS = "single_class"
 REASON_EMPTY_BATCH = "empty_batch"
 REASON_AUC_UNDEFINED = "auc_undefined"
 REASON_NO_BASELINE = "no_baseline_auc"
+# Anomalias (lote vazio, AUC não finita com duas classes) falham cautelosas: o
+# lote nunca termina `OK`, no mínimo `ATENCAO`, com o motivo nas `reasons`.
+_CAUTIOUS_REASONS = frozenset({REASON_EMPTY_BATCH, REASON_AUC_UNDEFINED})
+
+
+def _at_least_attention(decision: AlertDecision) -> AlertDecision:
+    if decision.level is not AlertLevel.OK:
+        return decision
+    return replace(
+        decision, level=AlertLevel.ATENCAO, action=ACTIONS[AlertLevel.ATENCAO]
+    )
 
 
 def _batch_auc(obs: BatchObservation) -> tuple[float | None, str | None]:
@@ -207,9 +238,15 @@ class DriftBatchObserver:
 
     def __init__(self, run: StageRun, metadata: dict) -> None:
         self._run = run
-        self._score_reference = metadata["score_reference"]
+        # Bordas e proporções conferidas já aqui (e não no meio da demo).
+        referencia = metadata["score_reference"]
+        self._score_reference = {
+            "edges": list(referencia["edges"]),
+            "shares": list(referencia["shares"]),
+        }
         oficial = metadata["models"][metadata["official_model"]]
         self._training_auc = float(oficial["test_metrics"]["roc_auc"])
+        # Baseline = AUC do primeiro lote observado (t0); `None` = "não avaliado".
         self._baseline_auc: float | None = None
         self._seen_first = False
 
@@ -258,6 +295,8 @@ class DriftBatchObserver:
             auc_drop=auc_drop,
             performance_skip_reason=skip_reason,
         )
+        if skip_reason in _CAUTIOUS_REASONS:
+            decision = _at_least_attention(decision)
         metrics = {
             "roc_auc": auc,
             "auc_drop": auc_drop,
@@ -315,14 +354,32 @@ def run_drift_demo(run: StageRun) -> None:
         return
     esperado = _champion_sha256()
     modelo = predict.default_model_path()
-    metadata_path = require_path(
-        modelo.with_name(config.MODEL_METADATA_FILE.name), "Metadata do modelo"
+    observador = _observer_from_metadata(
+        run, modelo.with_name(config.MODEL_METADATA_FILE.name)
     )
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     drift_demo.run_demo(
-        on_batch=DriftBatchObserver(run, metadata),
+        on_batch=observador,
         bundle_loader=partial(predict.load_bundle, modelo, expected_sha256=esperado),
     )
+
+
+def _observer_from_metadata(run: StageRun, path: Path) -> DriftBatchObserver:
+    """Observador a partir do metadata do modelo; ausente/incompatível é erro de domínio.
+
+    Metadata de um modelo antigo (sem `score_reference`, por exemplo) ou corrompido
+    não pode virar traceback: a mensagem diz o caminho e como regerar.
+    """
+    path = _stage_file(path, "Metadata do modelo")
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        return DriftBatchObserver(run, metadata)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # `json.JSONDecodeError` e `UnicodeDecodeError` são `ValueError`.
+        raise StagePreconditionError(
+            f"Metadata do modelo incompatível em {path} ({type(exc).__name__}: "
+            f"falta `score_reference` ou a métrica de teste, ou o JSON é inválido). "
+            f"{_REGENERATE_HINT}"
+        ) from exc
 
 
 def _bootstrap(versao: int, shas: dict[str, str]) -> None:
