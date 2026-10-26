@@ -50,6 +50,13 @@ def test_train_models_learns_signal(trained):
     assert "gender" not in bundle["input_columns"]  # so auditoria
 
 
+def test_train_grava_score_reference(trained):
+    _, metadata = trained
+    reference = metadata["score_reference"]
+    assert sum(reference["shares"]) == pytest.approx(1)
+    assert len(reference["shares"]) == len(reference["edges"]) + 1
+
+
 def test_training_is_reproducible(trained):
     reference = make_valid_df(n=1500, seed=3)
     bundle_b, _ = train_models(

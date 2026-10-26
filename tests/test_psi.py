@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.config import PSI_MODERATE
+from src.config import PSI_MODERATE, PSI_SIGNIFICANT
 from src.drift.detect import run_drift_detection
 from src.drift.performance import assess_auc_drop
-from src.drift.psi import population_stability_index, psi_level
+from src.drift.psi import population_stability_index, psi_level, score_psi
+from src.models.metrics import score_distribution
 from tests.conftest import make_valid_df
 
 
@@ -68,6 +71,39 @@ def test_auc_drop_flags_degradation_only_above_threshold():
     assert mild.degraded is False
     assert severe.degraded is True
     assert severe.to_dict()["metric"] == "roc_auc"
+
+
+def test_score_distribution_formato():
+    scores = np.random.default_rng(0).uniform(size=2000)
+    dist = score_distribution(scores)
+    assert len(dist["edges"]) == 9
+    assert len(dist["shares"]) == 10
+    assert sum(dist["shares"]) == pytest.approx(1)
+    assert all(a < b for a, b in zip(dist["edges"], dist["edges"][1:], strict=False))
+
+
+def test_score_distribution_scores_constantes():
+    dist = score_distribution(np.full(100, 0.3))
+    assert len(dist["shares"]) >= 1
+    assert len(dist["shares"]) == len(dist["edges"]) + 1
+    assert sum(dist["shares"]) == pytest.approx(1)
+
+
+def test_score_psi_identico_e_zero():
+    scores = np.random.default_rng(1).uniform(size=3000)
+    assert score_psi(score_distribution(scores), scores) < 1e-9
+
+
+def test_score_psi_deslocado_alto():
+    scores = np.random.default_rng(2).uniform(size=3000)
+    shifted = np.clip(scores + 0.3, 0, 1)
+    assert score_psi(score_distribution(scores), shifted) > PSI_SIGNIFICANT
+
+
+def test_score_psi_constante_e_finito():
+    dist = score_distribution(np.full(100, 0.3))
+    psi = score_psi(dist, np.full(100, 0.8))
+    assert math.isfinite(psi)
 
 
 def test_detection_reports_psi_and_min_psi_filters_noise():

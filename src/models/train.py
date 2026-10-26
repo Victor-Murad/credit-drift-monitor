@@ -53,7 +53,7 @@ from src.config import (
 from src.logging_utils import get_logger, log_event
 from src.models.features import add_ratio_features, model_input
 from src.models.integrity import file_sha256
-from src.models.metrics import evaluate, ks_threshold
+from src.models.metrics import evaluate, ks_threshold, score_distribution
 from src.validation.contract import CONTRACT_VERSION
 from src.validation.gate import enforce_contract
 
@@ -183,6 +183,7 @@ def train_models(
 
     results: dict[str, dict] = {}
     pipelines: dict[str, Pipeline] = {}
+    test_scores: dict[str, np.ndarray] = {}
     for name in ("xgboost", "logistic_regression"):
         started = time.perf_counter()
         pipe = build_pipeline(name, seed, xgb_params)
@@ -195,6 +196,7 @@ def train_models(
             "train_seconds": round(time.perf_counter() - started, 2),
         }
         pipelines[name] = pipe
+        test_scores[name] = test_score
         log_event(
             logger,
             "model_trained",
@@ -239,6 +241,8 @@ def train_models(
         "xgboost_params": {**XGB_PARAMS, **(xgb_params or {})},
         "models": results,
         "raw_feature_importance": importance,
+        # Referencia do PSI do score em producao: scores do modelo oficial no teste.
+        "score_reference": score_distribution(test_scores["xgboost"]),
     }
     return bundle, metadata
 

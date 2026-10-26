@@ -17,6 +17,8 @@ from sklearn.metrics import (
     roc_curve,
 )
 
+from src.config import SCORE_PSI_BINS
+
 
 def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """KS de credito: maxima separacao entre as distribuicoes de bons e maus."""
@@ -28,6 +30,22 @@ def ks_threshold(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """Ponto de corte que maximiza o KS (estatistica J de Youden)."""
     fpr, tpr, thresholds = roc_curve(y_true, y_score)
     return float(thresholds[np.argmax(tpr - fpr)])
+
+
+def score_distribution(scores: np.ndarray, n_bins: int = SCORE_PSI_BINS) -> dict:
+    """Distribuicao de referencia do score: bordas internas por quantis + proporcoes.
+
+    Bordas repetidas (scores concentrados) sao deduplicadas, entao podem sobrar
+    menos de `n_bins` faixas; `shares` sempre soma 1 e tem `len(edges) + 1` itens.
+    """
+    values = np.asarray(scores, dtype=float)
+    inner = np.unique(np.quantile(values, np.linspace(0, 1, n_bins + 1)[1:-1]))
+    bins = np.searchsorted(inner, values, side="right")
+    counts = np.bincount(bins, minlength=len(inner) + 1)
+    return {
+        "edges": [float(edge) for edge in inner],
+        "shares": [float(share) for share in counts / counts.sum()],
+    }
 
 
 def evaluate(y_true: np.ndarray, y_score: np.ndarray, threshold: float) -> dict:

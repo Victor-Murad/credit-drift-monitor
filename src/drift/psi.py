@@ -76,6 +76,24 @@ def population_stability_index(
     return float(np.sum((cur_share - ref_share) * np.log(cur_share / ref_share)))
 
 
+def score_psi(reference: dict, scores: np.ndarray) -> float:
+    """PSI do score do lote contra a distribuicao de referencia do treino.
+
+    `reference` e o `score_reference` gravado no metadata do treino
+    (`{"edges": [...], "shares": [...]}`, ver `score_distribution`).
+    """
+    edges = np.asarray(reference["edges"], dtype=float)
+    ref_share = _shares(np.asarray(reference["shares"], dtype=float))
+    if len(ref_share) != len(edges) + 1:
+        raise ValueError(
+            "score_reference invalido: 'shares' deve ter len('edges') + 1 itens."
+        )
+    values = np.asarray(scores, dtype=float)
+    bins = np.searchsorted(edges, values, side="right")
+    cur_share = _shares(np.bincount(bins, minlength=len(ref_share)))
+    return float(np.sum((cur_share - ref_share) * np.log(cur_share / ref_share)))
+
+
 def psi_level(psi: float) -> str:
     """Classifica o PSI: `stable`, `moderate` ou `significant`."""
     if psi >= PSI_SIGNIFICANT:
