@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -40,6 +41,9 @@ from src.validation.invalid_batch import make_invalid_batch
 logger = get_logger("data_contract.demo")
 
 BATCH_SIZE = 500
+
+# (nome do lote, "APROVADO" | "BLOQUEADO", resultado do contrato se bloqueado, n pontuados)
+BatchHook = Callable[[str, str, ValidationResult | None, int], None]
 
 
 def build_batches() -> list[dict]:
@@ -81,17 +85,35 @@ def run_batch(path, bundle) -> tuple[str, ValidationResult | None, int]:
     return "APROVADO", None, len(scored)
 
 
-def main() -> int:
+def main(
+    on_batch: BatchHook | None = None,
+    *,
+    bundle_loader: Callable[[], dict] | None = None,
+) -> int:
+    """Roda a demonstracao e devolve 0 (sucesso) ou 1.
+
+    `on_batch(nome, status, resultado, n_pontuados)` e chamado ao fim de cada lote
+    (valido, depois invalido); `resultado` e o `ValidationResult` do lote BLOQUEADO
+    (None quando APROVADO). `bundle_loader` substitui `load_bundle()` (ex.: para
+    conferir o sha256 do champion); sem ele, a checagem do arquivo do modelo e o
+    comportamento do CLI nao mudam.
+    """
     set_global_seed()
     manifest = build_batches()
-    if not MODEL_FILE.exists():
+    if bundle_loader is None and not MODEL_FILE.exists():
         sys.exit("Modelo baseline nao encontrado. Rode `make train` antes.")
-    bundle = load_bundle()
+    bundle = (bundle_loader or load_bundle)()
 
     valid_status, _, n_scored = run_batch(VALID_BATCH_FILE, bundle)
+    if on_batch:
+        on_batch(VALID_BATCH_FILE.stem, valid_status, None, n_scored)
     invalid_status, invalid_result, n_scored_invalid = run_batch(
         INVALID_BATCH_FILE, bundle
     )
+    if on_batch:
+        on_batch(
+            INVALID_BATCH_FILE.stem, invalid_status, invalid_result, n_scored_invalid
+        )
 
     checks = [
         {**d, "detected": bool(invalid_result) and was_detected(d, invalid_result)}

@@ -239,10 +239,9 @@ def test_stage_tracking_off_executa_sem_mlflow(
     assert not caminhos.champion.exists()
 
 
-@pytest.mark.parametrize("nome", ["contract_demo", "inexistente"])
-def test_stage_desconhecido_e_erro_de_uso(nome, capsys):
+def test_stage_desconhecido_e_erro_de_uso(capsys):
     with pytest.raises(SystemExit) as saida:
-        stage.main([nome])
+        stage.main(["inexistente"])
     assert saida.value.code == 2
     assert "ainda não disponível" in capsys.readouterr().err
 

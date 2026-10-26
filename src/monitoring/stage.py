@@ -1,6 +1,6 @@
 """Estágios do pipeline rastreados no MLflow (spec da Etapa 3, §4.1 e §4.7).
 
-    uv run python -m src.monitoring.stage {prepare,train,drift_demo}
+    uv run python -m src.monitoring.stage {prepare,train,contract_demo,drift_demo}
 
 Cada estágio abre um run de estágio (`tracked_stage`) e chama o `main` do módulo
 de baixo, que não conhece o MLflow. O `train` cria ainda o run de treino (filho),
@@ -15,7 +15,10 @@ o nível de alerta (§4.2), as métricas de saúde (§4.3) e os relatórios anex
 Falha fechada: sem MLflow acessível, imprime o erro (URI já redigida) e sai com
 código 1; `MONITORING_TRACKING=off` roda o estágio sem registro.
 
-`contract_demo` (Tarefa 8) entra em `STAGES` quando for implementado.
+O `contract_demo` roda a demo do contrato (lote válido e lote inválido) com o mesmo
+champion verificado e, pelo gancho `on_batch`, cria um run filho por lote: `OK` para
+o válido e `BLOQUEADO` (intencional, `intentional_demo=true`) para o inválido, que
+conta em `alerts_failure_count` sem derrubar o estágio (`stage_success=1`).
 """
 
 from __future__ import annotations
@@ -65,6 +68,8 @@ from src.monitoring.tracking import (
     tracked_stage,
     tracking_errors,
 )
+from src.validation import demo as contract_demo
+from src.validation.gate import ValidationResult
 
 logger = get_logger("monitoring.stage")
 
@@ -331,7 +336,7 @@ def _champion_sha256() -> str:
             f"Nenhuma versão de {config.REGISTERED_MODEL_NAME} tem o alias "
             f"`{CHAMPION_ALIAS}` no Model Registry: não há modelo de produção para "
             "monitorar. Rode `make pipeline` (ou o estágio `train`: "
-            "`uv run python -m src.monitoring.stage train`) antes do drift_demo."
+            "`uv run python -m src.monitoring.stage train`) antes deste estágio."
         )
     esperado = champion.tags.get("model_sha256")
     if not esperado:
@@ -382,6 +387,170 @@ def _observer_from_metadata(run: StageRun, path: Path) -> DriftBatchObserver:
         ) from exc
 
 
+class StageFailedError(RuntimeError):
+    """O estágio rodou, mas o que ele verifica falhou (ex.: a demo do contrato)."""
+
+
+STATUS_APPROVED = "APROVADO"
+STATUS_BLOCKED = "BLOQUEADO"
+
+
+def _contract_report_files(
+    batch_name: str, result: ValidationResult | None
+) -> list[Path]:
+    """Relatórios HTML/JSON do contrato do lote (os que existirem em disco).
+
+    Lote bloqueado: os caminhos vêm do `ValidationResult`. Lote aprovado (sem
+    resultado no gancho): ficam em `CONTRACT_REPORTS_DIR`, com o nome do lote.
+    """
+    if result is not None and result.report_files:
+        candidatos = [config.ROOT_DIR / p for p in result.report_files.values()]
+    else:
+        pasta = Path(contract_demo.CONTRACT_REPORTS_DIR)
+        candidatos = [pasta / f"{batch_name}_report.{ext}" for ext in ("html", "json")]
+    return [c for c in candidatos if c.is_file()]
+
+
+def _contract_batch_path(batch_name: str) -> Path | None:
+    """Arquivo CSV do lote da demo (lido do módulo na chamada: os testes o redirecionam)."""
+    arquivos = (contract_demo.VALID_BATCH_FILE, contract_demo.INVALID_BATCH_FILE)
+    return next((a for a in map(Path, arquivos) if a.stem == batch_name), None)
+
+
+class ContractBatchObserver:
+    """Gancho `on_batch` do `contract_demo`: um run filho por lote (válido e inválido).
+
+    O lote válido é só o resultado do contrato (`OK`, sem Evidently nem PSI). O lote
+    bloqueado é o bloqueio INTENCIONAL da demo: nível `BLOQUEADO` com as regras violadas
+    como motivos, `intentional_demo=true`, e conta em `alerts_failure_count` (o alerta
+    é real, §4.1); o estágio segue com `stage_success=1`. Nenhum run leva métrica de
+    performance: o contrato barra o lote antes do modelo.
+    """
+
+    def __init__(self, run: StageRun, model_version: str = "desconhecida") -> None:
+        self._run = run
+        self._model_version = model_version
+
+    def watching(self, loader: Callable[[], dict]) -> Callable[[], dict]:
+        """Carregador que guarda o `model_version` do bundle para as tags dos lotes."""
+
+        def _load() -> dict:
+            bundle = loader()
+            self._model_version = str(bundle["model_version"])
+            return bundle
+
+        return _load
+
+    def __call__(
+        self,
+        batch_name: str,
+        status: str,
+        result: ValidationResult | None,
+        n_scored: int,
+    ) -> None:
+        record = self.record(batch_name, status, result, n_scored)
+        self._run.log_batch(record)
+        log_event(
+            logger,
+            "batch_alert",
+            batch_name=record.batch_name,
+            alert_level=record.decision.level.value,
+            alert_reasons=list(record.decision.reasons),
+            performance_evaluated=record.decision.performance_evaluated,
+        )
+
+    def record(
+        self,
+        batch_name: str,
+        status: str,
+        result: ValidationResult | None,
+        n_scored: int,
+    ) -> BatchRecord:
+        if status == STATUS_APPROVED:
+            if n_scored <= 0:
+                raise StageFailedError(
+                    f"Lote {batch_name} {STATUS_APPROVED} pelo contrato, mas nenhum "
+                    "registro foi pontuado: não há o que registrar como lote saudável."
+                )
+            decision = decide_alert_level(
+                blocked=False,
+                drifted_columns=[],
+                score_psi=None,
+                auc_drop=None,
+            )
+            n_rows, rejected, intentional = n_scored, 0, False
+        elif status == STATUS_BLOCKED:
+            if result is None:
+                raise StageFailedError(
+                    f"Lote {batch_name} {STATUS_BLOCKED} sem o resultado do contrato: "
+                    "sem as regras violadas não há motivo a registrar."
+                )
+            decision = self._blocked_decision(result)
+            n_rows, rejected, intentional = result.n_rows, result.n_rows, True
+        else:
+            raise StageFailedError(
+                f"Lote {batch_name} com status inesperado {status!r} "
+                f"(esperado {STATUS_APPROVED!r} ou {STATUS_BLOCKED!r})."
+            )
+        return BatchRecord(
+            batch_name=batch_name,
+            decision=decision,
+            n_rows=n_rows,
+            rows_rejected=rejected,
+            metrics={},
+            psi_by_column={},
+            n_drifted_columns=0,
+            model_version=self._model_version,
+            artifacts=_contract_report_files(batch_name, result),
+            intentional_demo=intentional,
+            batch_path=_contract_batch_path(batch_name),
+        )
+
+    @staticmethod
+    def _blocked_decision(result: ValidationResult) -> AlertDecision:
+        decision = decide_alert_level(
+            blocked=True, drifted_columns=[], score_psi=None, auc_drop=None
+        )
+        # Motivos = regras violadas do contrato (sem repetir a mesma regra por coluna).
+        regras = tuple(dict.fromkeys(r["rule"] for r in result.rules_violated))
+        return replace(decision, reasons=regras or decision.reasons)
+
+
+def run_contract_demo(run: StageRun) -> None:
+    """Demo do contrato com um run filho por lote (válido e inválido).
+
+    Com rastreamento, o modelo que pontua o lote válido tem de ter o sha256 da tag
+    `model_sha256` do champion. Sem rastreamento (`MONITORING_TRACKING=off`), roda a
+    demo como o CLI, sem Registry. Código de retorno 1 da demo (lote válido barrado,
+    inválido aprovado ou defeito não detectado) falha o estágio.
+    """
+    if not run.enabled:
+        _require_demo_ok(contract_demo.main())
+        return
+    esperado = _champion_sha256()
+    modelo = predict.default_model_path()
+    observador = ContractBatchObserver(run)
+    status = contract_demo.main(
+        on_batch=observador,
+        bundle_loader=observador.watching(
+            partial(predict.load_bundle, modelo, expected_sha256=esperado)
+        ),
+    )
+    pasta = Path(contract_demo.CONTRACT_REPORTS_DIR)
+    for nome in ("contract_demo_summary.md", "invalid_batch_manifest.json"):
+        run.attach(pasta / nome, artifact_path="reports")
+    _require_demo_ok(status)
+
+
+def _require_demo_ok(status: int) -> None:
+    if status != 0:
+        raise StageFailedError(
+            "A demo do contrato falhou: o lote válido não foi aprovado, o inválido "
+            "não foi bloqueado ou algum defeito injetado não foi detectado. Veja "
+            "`contract_demo_summary.md` em reports/data_contract/."
+        )
+
+
 def _bootstrap(versao: int, shas: dict[str, str]) -> None:
     """Sem champion: exporta (conferindo o sha256) e só então dá o alias.
 
@@ -395,10 +564,10 @@ def _bootstrap(versao: int, shas: dict[str, str]) -> None:
         log_event(logger, "champion_bootstrap", version=versao, **shas)
 
 
-# Tabela de estágios: a Tarefa 8 acrescenta `contract_demo`.
 STAGES: dict[str, Callable[[StageRun], None]] = {
     "prepare": run_prepare,
     "train": run_train,
+    "contract_demo": run_contract_demo,
     "drift_demo": run_drift_demo,
 }
 
@@ -428,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
         TrackingUnavailableError,
         ModelIntegrityError,
         StagePreconditionError,
+        StageFailedError,
     ) as erro:
         # A mensagem já vem redigida (sem credenciais da URI); nada de traceback.
         print(f"ERRO no estágio {args.stage}: {erro}", file=sys.stderr)
