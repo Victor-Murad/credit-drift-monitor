@@ -71,7 +71,7 @@ Entradas que a spec não exercita e que mais provavelmente quebram o uso real. C
 
 # FASE A — Núcleo (§4.1 a §4.6)
 
-### Tarefa 1: Dependências, configuração, higiene do git e contrato de camadas
+### Task 1: Dependências, configuração, higiene do git e contrato de camadas
 
 **Files:**
 - Modify: `pyproject.toml`, `uv.lock`, `src/config.py`, `.gitignore`, `tests/conftest.py`
@@ -94,7 +94,7 @@ Entradas que a spec não exercita e que mais provavelmente quebram o uso real. C
 
 ---
 
-### Tarefa 2: Regra de alerta (função pura)
+### Task 2: Regra de alerta (função pura)
 
 **Files:** Create `src/monitoring/alerts.py`, `tests/test_monitoring_alerts.py`.
 
@@ -135,7 +135,7 @@ def decide_alert_level(
 
 ---
 
-### Tarefa 3: Distribuição de referência do score e PSI do score
+### Task 3: Distribuição de referência do score e PSI do score
 
 **Files:** Modify `src/models/metrics.py`, `src/models/train.py`, `src/drift/psi.py`; Test `tests/test_psi.py`, `tests/test_train.py`.
 
@@ -161,7 +161,7 @@ def score_psi(reference: dict, scores: np.ndarray) -> float
 
 ---
 
-### Tarefa 4: Utilitários de infraestrutura (memória e extração de log)
+### Task 4: Utilitários de infraestrutura (memória e extração de log)
 
 **Files:** Create `src/monitoring/resources.py`, `src/monitoring/logs.py`; Test `tests/test_monitoring_utils.py`.
 
@@ -178,7 +178,7 @@ def extract_run_events(log_file: Path, run_id: str, *, since: datetime, until: d
 
 ---
 
-### Tarefa 5: Adaptador do MLflow (`tracked_stage`, run de lote)
+### Task 5: Adaptador do MLflow (`tracked_stage`, run de lote)
 
 **Files:** Create `src/monitoring/tracking.py`; Test `tests/test_monitoring_tracking.py` (usa `tracking_env`).
 
@@ -221,7 +221,7 @@ def tracked_stage(stage: str, *, pipeline_run_id: str = RUN_ID) -> Iterator[Stag
 
 ---
 
-### Tarefa 6: Registry e treino rastreado (estágios `prepare` e `train`)
+### Task 6: Registry e treino rastreado (estágios `prepare` e `train`)
 
 **Files:** Create `src/monitoring/registry.py`, `src/monitoring/stage.py`; Modify `src/models/train.py` (retorno de `main()`), `src/config.py` já traz `CHAMPION_*` (Tarefa 1); Test `tests/test_monitoring_stage.py`, `tests/test_monitoring_registry.py`.
 
@@ -250,7 +250,7 @@ def main(argv: list[str] | None = None) -> int     # python -m src.monitoring.st
 
 ---
 
-### Tarefa 7: Gancho de lote na demo de drift e estágio `drift_demo`
+### Task 7: Gancho de lote na demo de drift e estágio `drift_demo`
 
 **Files:** Modify `src/drift/demo.py`, `src/models/predict.py`, `src/monitoring/stage.py`; Test `tests/test_monitoring_drift_stage.py`, ajustar `tests/test_detect.py` se necessário.
 
@@ -280,7 +280,7 @@ def load_bundle(path: Path | None = None, *, expected_sha256: str | None = None)
 
 ---
 
-### Tarefa 8: Estágio `contract_demo` (BLOQUEADO)
+### Task 8: Estágio `contract_demo` (BLOQUEADO)
 
 **Files:** Modify `src/validation/demo.py`, `src/monitoring/stage.py`; Test `tests/test_monitoring_contract_stage.py`.
 
@@ -300,7 +300,7 @@ def main(on_batch: Callable[[str, str, ValidationResult | None, int], None] | No
 
 ---
 
-### Tarefa 9: Renomear `concept_drift` → `label_shift` (§4.6)
+### Task 9: Renomear `concept_drift` → `label_shift` (§4.6)
 
 **Files:** Modify `src/drift/detect.py`, `src/drift/demo.py`, `tests/test_detect.py`, docs que citam o campo (`docs/etapa2*`, `README.md`); emendar a ADR-0005 item 4 (nota de emenda datada, sem reescrever o histórico); regenerar `reports/drift/` na Tarefa 11.
 
@@ -311,7 +311,7 @@ def main(on_batch: Callable[[str, str, ValidationResult | None, int], None] | No
 
 ---
 
-### Tarefa 10: `monitor` — avaliação de um lote
+### Task 10: `monitor` — avaliação de um lote
 
 **Files:** Create `src/monitoring/monitor.py`; Test `tests/test_monitoring_monitor.py`.
 
@@ -327,7 +327,7 @@ def main(on_batch: Callable[[str, str, ValidationResult | None, int], None] | No
 
 ---
 
-### Tarefa 11: Makefile, DVC e aceite real do núcleo
+### Task 11: Makefile, DVC e aceite real do núcleo
 
 **Files:** Modify `Makefile`; Create `dvc.yaml`, `.dvc/` (por `uv run dvc init`), `tests/test_dvc_yaml.py`; Create `tests/integration/test_acceptance_real.py`; Modify `README.md`.
 
@@ -347,7 +347,7 @@ def main(on_batch: Callable[[str, str, ValidationResult | None, int], None] | No
 
 # FASE B — Extensão 4.7: retreino, Registry e promoção
 
-### Tarefa 12: Regra de promoção (função pura)
+### Task 12: Regra de promoção (função pura)
 
 **Files:** Create `src/monitoring/promotion.py`, `tests/test_monitoring_promotion.py`.
 
@@ -371,7 +371,7 @@ Motivos estáveis: `contract_failed`, `integrity_failed`, `gain_below_min`, `reg
 
 ---
 
-### Tarefa 13: Registry — challenger, consumo de alerta e auditoria
+### Task 13: Registry — challenger, consumo de alerta e auditoria
 
 **Files:** Modify `src/monitoring/registry.py`; Test `tests/test_monitoring_registry.py`.
 
@@ -391,7 +391,7 @@ def rollback_alias() -> int                    # champion←previous; devolve a 
 
 ---
 
-### Tarefa 14: Retreino (`make retrain`)
+### Task 14: Retreino (`make retrain`)
 
 **Files:** Create `src/monitoring/retrain.py`; Test `tests/test_monitoring_retrain.py`.
 
@@ -411,7 +411,7 @@ def rollback_alias() -> int                    # champion←previous; devolve a 
 
 ---
 
-### Tarefa 15: Promoção e rollback humanos + `load_bundle` conferindo o champion
+### Task 15: Promoção e rollback humanos + `load_bundle` conferindo o champion
 
 **Files:** Create `src/monitoring/promote.py`; Modify `src/monitoring/stage.py`/`monitor.py` (passam `expected_sha256`); Test `tests/test_monitoring_promote.py`.
 
@@ -430,7 +430,7 @@ def rollback_alias() -> int                    # champion←previous; devolve a 
 
 ---
 
-### Tarefa 16: Makefile, ADR-0007 e documentação da extensão
+### Task 16: Makefile, ADR-0007 e documentação da extensão
 
 **Files:** Modify `Makefile`, `README.md`, `CHANGELOG.md`; Create `docs/adrs/0007-retreino-registry-e-promocao-humana.md`.
 
@@ -440,7 +440,7 @@ def rollback_alias() -> int                    # champion←previous; devolve a 
 
 ---
 
-### Tarefa 17: Aceite real da extensão e calibração dos limiares
+### Task 17: Aceite real da extensão e calibração dos limiares
 
 **Files:** Modify `tests/integration/test_acceptance_real.py`; Create relatório em `docs/ai/reports/`. `src/config.py` **não** muda nesta tarefa: os limiares foram pré-registrados na ADR-0007 antes do retreino real.
 
