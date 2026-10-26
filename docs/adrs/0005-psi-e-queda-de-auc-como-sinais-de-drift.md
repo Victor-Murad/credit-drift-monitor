@@ -5,6 +5,7 @@ LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
 Data       | Autor          | Descrição
 --------------------------------------------------------------------------------
 2026-10-25 | Eduardo Batista | Criação da ADR 0005 detalhando PSI e queda de ROC-AUC como sinais complementares ao KS.
+2026-10-26 | Eduardo Batista | Nota de emenda ao item 4: `DriftResult.concept_drift` renomeado para `label_shift`, com alias legado no JSON até a Etapa 4.
 ================================================================================
 -->
 
@@ -35,6 +36,8 @@ A ADR-0004 adotou o Evidently com teste KS (numéricas) e qui-quadrado (categór
 2. **Filtro de efeito opcional**: `run_drift_detection(min_psi=...)` / `--min-psi` só marca a coluna quando KS é significativo **e** PSI ≥ limiar. O padrão da função continua sendo só p-valor (comportamento retrocompatível). A demo (`src/drift/demo.py`) usa `min_psi=PSI_MODERATE`, decisão validada com os dados reais em 2026-10-25 (ver Consequências); a Etapa 3 deve fazer o mesmo ao contar alertas.
 3. **Queda de ROC-AUC como sinal de concept drift** (`src/drift/performance.py`): `assess_auc_drop` compara o AUC de cada fatia com o baseline t0; degradado se a queda ≥ `AUC_DROP_ALERT` (0,05). Entra em `drift_demo_summary.json/.md` (chave `performance`) e no evento `drift_demo`.
 4. O campo `concept_drift` de `DriftResult` permanece por compatibilidade, mas é documentado como **label shift**; o sumário o rotula assim.
+
+> **Nota de emenda (2026-10-26) ao item 4:** o campo foi renomeado para `DriftResult.label_shift` (Etapa 3, spec de observabilidade §4.6). O que o teste sobre o `target` mede (KS + PSI) é label shift, isto é, mudança de prevalência do rótulo; **concept drift é a queda de desempenho** (`performance.degraded`, item 3), e é só ele que alimenta o alerta de concept drift em `decide_alert_level`. Por compatibilidade com relatórios JSON antigos, `DriftResult.to_dict()` continua emitindo `concept_drift` com o mesmo valor de `label_shift`; esse alias é **obsoleto e será removido na Etapa 4**. O texto original do item 4 acima fica preservado como histórico; os relatórios em `reports/drift/` serão regenerados com o campo novo na regeneração da Etapa 3, sem perder validade enquanto isso (leem-se pelo alias). Os nomes de lote `production_t2_concept_drift` (arquivo/fatia que simula concept drift nos dados) não mudam.
 
 ### Matriz de Avaliação de Alternativas (Trade-off Matrix)
 

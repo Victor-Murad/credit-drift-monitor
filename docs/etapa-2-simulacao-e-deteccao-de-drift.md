@@ -109,7 +109,7 @@ Amostra Evidently: 15.000 linhas da Referência e da corrente (seed 42). Limiar 
 | t1 | **SIM** (3/7) | `annuity_amount` (0,17), `ext_source_3` (0,97), `income_total` (0,76) | não |
 | t2 | **SIM** (3/7) | as mesmas três | não (KS significativo, mas PSI 0,02) |
 
-> **Atenção ao "Concept drift (`target`)":** o teste sobre `target` detecta só mudança de *prevalência* do rótulo (label/prior shift). Não mede mudança em P(y|X). O sinal confiável é a queda de ROC-AUC (seção abaixo e `performance` no sumário). Com dados reais, o KS sozinho marcava `annuity_amount` em t0 (PSI 0,00) e `target` em t2 (PSI 0,02); `min_psi=0,10`, usado na demo, filtra esses alertas ([ADR-0005](adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)).
+> **Atenção ao "Label shift (`target`)":** o teste sobre `target` detecta só mudança de *prevalência* do rótulo (label/prior shift) e é exposto no campo `label_shift` de `DriftResult` e dos relatórios JSON (antes `concept_drift`, mantido como alias **obsoleto**, removido na Etapa 4; relatórios gerados antes do renome só trazem o nome antigo). Não mede mudança em P(y|X). O sinal confiável é a queda de ROC-AUC (seção abaixo e `performance` no sumário). Com dados reais, o KS sozinho marcava `annuity_amount` em t0 (PSI 0,00) e `target` em t2 (PSI 0,02); `min_psi=0,10`, usado na demo, filtra esses alertas ([ADR-0005](adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)).
 
 Leitura: t1 prova Data Drift sem Concept Drift; t2 adiciona a mudança de rótulo. t0 permanece **sem** dataset drift frente à Referência (split estratificado da Etapa 1).
 
