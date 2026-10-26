@@ -101,5 +101,10 @@ show_missing = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q --strict-markers"
+filterwarnings = [
+    # Aviso emitido pelo proprio MLflow (sqlalchemy_store.py) ao configurar o
+    # mapeamento do SQLAlchemy; nao ha o que corrigir no nosso codigo.
+    "ignore:The ``noload`` loader strategy is deprecated:sqlalchemy.exc.SADeprecationWarning",
+]
 testpaths = ["tests"]
 pythonpath = ["."]

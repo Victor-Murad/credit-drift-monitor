@@ -29,9 +29,9 @@ data/samples/*
 !data/**/.gitkeep
 
 # Observabilidade local (Etapa 3): banco e artefatos do MLflow, estado local do DVC
-mlflow.db
-mlartifacts
-mlruns
+/mlflow.db
+/mlartifacts
+/mlruns
 .dvc/config.local
 .dvc/cache
 .dvc/tmp
