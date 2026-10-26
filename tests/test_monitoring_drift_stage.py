@@ -197,6 +197,32 @@ def test_auc_nao_finita_nao_sai_ok(tmp_path):
     assert record.metrics["auc_drop"] is None
 
 
+def test_score_psi_nao_finito_nao_sai_ok(tmp_path):
+    metadata = {
+        **METADATA_FALSO,
+        "score_reference": {"edges": [0.5], "shares": [float("nan"), 0.5]},
+    }
+    run = _RunFalso()
+    stage.DriftBatchObserver(run, metadata)(
+        _observacao(tmp_path, "production_t0", colunas={"ext_source_3": False})
+    )
+
+    (record,) = run.records
+    assert record.metrics["score_psi"] is None
+    assert "score_psi_undefined" in record.decision.reasons
+    assert record.decision.level.value == "ATENCAO"
+
+
+def test_baseline_fixo_substitui_o_primeiro_lote(tmp_path):
+    run = _RunFalso()
+    observador = stage.DriftBatchObserver(run, METADATA_FALSO, baseline_auc=0.9)
+    observador(_observacao(tmp_path, "lote", colunas={"ext_source_3": False}))
+
+    (record,) = run.records
+    assert record.metrics["auc_drop"] == pytest.approx(0.1)
+    assert record.decision.level.value == "CRITICO"
+
+
 def test_sem_baseline_no_t0_nao_avalia_t1(tmp_path):
     run = _RunFalso()
     observador = stage.DriftBatchObserver(run, METADATA_FALSO)

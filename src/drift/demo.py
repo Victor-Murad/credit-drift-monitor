@@ -42,8 +42,10 @@ from src.validation.gate import DataContractViolation
 
 logger = get_logger("drift.demo")
 
-# Colunas monitoradas na demo (variaveis da Etapa 2 + target para concept).
-DEMO_DRIFT_COLUMNS = [
+# Colunas monitoradas (variaveis da Etapa 2 + target para label shift): as mesmas na
+# demo e no comando `monitor` (src/monitoring/monitor.py). `target` so entra se o
+# lote for rotulado.
+MONITORED_COLUMNS = [
     "annuity_amount",
     "ext_source_3",
     "ext_source_2",
@@ -52,6 +54,10 @@ DEMO_DRIFT_COLUMNS = [
     "years_employed",
     TARGET_COLUMN,
 ]
+# Nome antigo (Etapa 2), mantido como alias.
+DEMO_DRIFT_COLUMNS = MONITORED_COLUMNS
+# Fracao de colunas driftadas que marca `dataset_drift` no lote.
+DATASET_DRIFT_SHARE = 0.3
 
 # Evidently em 200k+ linhas fica lento para a demo; amostramos a referencia
 # e a corrente com a mesma seed (reprodutivel). As metricas de modelo usam
@@ -59,7 +65,7 @@ DEMO_DRIFT_COLUMNS = [
 EVIDENTLY_SAMPLE_SIZE = 15_000
 
 
-def _sample_for_evidently(
+def sample_for_evidently(
     reference: pd.DataFrame, current: pd.DataFrame, n: int = EVIDENTLY_SAMPLE_SIZE
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     ref = (
@@ -179,14 +185,14 @@ def run_demo(
         # t0 serve de baseline de performance; ainda assim reportamos drift
         # vs referencia (deve ser estavel ou leve, por ser split da mesma origem).
         current = pd.read_parquet(path)
-        ref_s, cur_s = _sample_for_evidently(reference, current, n=evidently_sample)
+        ref_s, cur_s = sample_for_evidently(reference, current, n=evidently_sample)
         drift = run_drift_detection(
             ref_s,
             cur_s,
             batch_name=batch_name,
-            columns=DEMO_DRIFT_COLUMNS,
+            columns=MONITORED_COLUMNS,
             report_dir=report_dir,
-            drift_share=0.3,
+            drift_share=DATASET_DRIFT_SHARE,
             min_psi=PSI_MODERATE,
             model_version=model_version,
         )

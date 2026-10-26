@@ -185,7 +185,9 @@ REASON_SINGLE_CLASS = "single_class"
 REASON_EMPTY_BATCH = "empty_batch"
 REASON_AUC_UNDEFINED = "auc_undefined"
 REASON_NO_BASELINE = "no_baseline_auc"
-# Anomalias (lote vazio, AUC não finita com duas classes) falham cautelosas: o
+# PSI do score não finito (ex.: `score_reference` corrompido): "não avaliado".
+REASON_SCORE_PSI_UNDEFINED = "score_psi_undefined"
+# Anomalias (lote vazio, AUC ou PSI do score não finitos) falham cautelosas: o
 # lote nunca termina `OK`, no mínimo `ATENCAO`, com o motivo nas `reasons`.
 _CAUTIOUS_REASONS = frozenset({REASON_EMPTY_BATCH, REASON_AUC_UNDEFINED})
 
@@ -231,17 +233,36 @@ def _report_files(obs: BatchObservation) -> list[Path]:
     return arquivos
 
 
-class DriftBatchObserver:
-    """Gancho `on_batch` do `drift_demo`: nível de alerta e run filho por lote.
+def register_batch(run: StageRun, record: BatchRecord) -> BatchRecord:
+    """Cria o run de lote (`log_batch`) e emite o evento `batch_alert` no log."""
+    run.log_batch(record)
+    log_event(
+        logger,
+        "batch_alert",
+        batch_name=record.batch_name,
+        alert_level=record.decision.level.value,
+        alert_reasons=list(record.decision.reasons),
+        performance_evaluated=record.decision.performance_evaluated,
+    )
+    return record
 
-    O baseline da queda de AUC é o AUC do PRIMEIRO lote observado (t0, §4.2); o t0
-    tem `auc_drop=0`. `auc_drop_vs_training` (contra o `roc_auc` de teste do
-    metadata) é só informativo. O PSI do score usa `metadata["score_reference"]`.
-    `target` fica fora de `drifted_columns` e do PSI por coluna; o resultado sobre
-    ele vai à parte (`label_shift`, `label_shift_psi`).
+
+class DriftBatchObserver:
+    """Avaliação de um lote pontuado: nível de alerta e run filho (§4.2, §4.3).
+
+    É o gancho `on_batch` do `drift_demo` e a avaliação do comando `monitor` (a mesma
+    regra nos dois). O baseline da queda de AUC é, por padrão, o AUC do PRIMEIRO lote
+    observado (t0, §4.2), que fica com `auc_drop=0`; `baseline_auc` fixa outro (o
+    `monitor` passa o do run `production_t0` ou o de `--baseline-auc`).
+    `auc_drop_vs_training` (contra o `roc_auc` de teste do metadata) é só informativo.
+    O PSI do score usa `metadata["score_reference"]`. `target` fica fora de
+    `drifted_columns` e do PSI por coluna; o resultado sobre ele vai à parte
+    (`label_shift`, `label_shift_psi`).
     """
 
-    def __init__(self, run: StageRun, metadata: dict) -> None:
+    def __init__(
+        self, run: StageRun, metadata: dict, *, baseline_auc: float | None = None
+    ) -> None:
         self._run = run
         # Bordas e proporções conferidas já aqui (e não no meio da demo).
         referencia = metadata["score_reference"]
@@ -251,21 +272,13 @@ class DriftBatchObserver:
         }
         oficial = metadata["models"][metadata["official_model"]]
         self._training_auc = float(oficial["test_metrics"]["roc_auc"])
-        # Baseline = AUC do primeiro lote observado (t0); `None` = "não avaliado".
-        self._baseline_auc: float | None = None
-        self._seen_first = False
+        # Baseline = AUC do primeiro lote observado (t0), salvo se fixado aqui;
+        # `None` = "não avaliado".
+        self._baseline_auc: float | None = baseline_auc
+        self._seen_first = baseline_auc is not None
 
-    def __call__(self, obs: BatchObservation) -> None:
-        record = self.record(obs)
-        self._run.log_batch(record)
-        log_event(
-            logger,
-            "batch_alert",
-            batch_name=record.batch_name,
-            alert_level=record.decision.level.value,
-            alert_reasons=list(record.decision.reasons),
-            performance_evaluated=record.decision.performance_evaluated,
-        )
+    def __call__(self, obs: BatchObservation) -> BatchRecord:
+        return register_batch(self._run, self.record(obs))
 
     def record(self, obs: BatchObservation) -> BatchRecord:
         auc, skip_reason = _batch_auc(obs)
@@ -274,17 +287,13 @@ class DriftBatchObserver:
             self._baseline_auc = auc
         auc_drop = None
         if auc is not None:
-            if self._baseline_auc is None:
+            baseline = self._baseline_auc
+            if baseline is None or not math.isfinite(baseline):
                 skip_reason = REASON_NO_BASELINE
             else:
-                auc_drop = assess_auc_drop(self._baseline_auc, auc).drop
+                auc_drop = assess_auc_drop(baseline, auc).drop
 
-        empty = obs.scored.empty
-        batch_score_psi = (
-            None
-            if empty
-            else score_psi(self._score_reference, obs.scored["default_probability"])
-        )
+        batch_score_psi, psi_reason = self._score_psi(obs.scored)
         colunas = [
             c for c in obs.drift.column_results if c.column != config.TARGET_COLUMN
         ]
@@ -300,7 +309,9 @@ class DriftBatchObserver:
             auc_drop=auc_drop,
             performance_skip_reason=skip_reason,
         )
-        if skip_reason in _CAUTIOUS_REASONS:
+        if psi_reason is not None:
+            decision = replace(decision, reasons=(*decision.reasons, psi_reason))
+        if skip_reason in _CAUTIOUS_REASONS or psi_reason is not None:
             decision = _at_least_attention(decision)
         metrics = {
             "roc_auc": auc,
@@ -327,8 +338,20 @@ class DriftBatchObserver:
             batch_path=obs.batch_path,
         )
 
+    def _score_psi(self, scored: pd.DataFrame) -> tuple[float | None, str | None]:
+        """PSI do score do lote, ou `None` (lote vazio, ou PSI não finito com motivo).
 
-def _champion_sha256() -> str:
+        NaN nunca chega à regra: um PSI indefinido não pode passar como "estável".
+        """
+        if scored.empty:
+            return None, None  # o lote vazio já leva `empty_batch`
+        psi = score_psi(self._score_reference, scored["default_probability"])
+        if not math.isfinite(psi):
+            return None, REASON_SCORE_PSI_UNDEFINED
+        return psi, None
+
+
+def champion_sha256() -> str:
     """Tag `model_sha256` do champion; sem champion, erro orientando o `train`."""
     champion = get_alias_version(CHAMPION_ALIAS)
     if champion is None:
@@ -357,18 +380,23 @@ def run_drift_demo(run: StageRun) -> None:
     if not run.enabled:
         drift_demo.run_demo()
         return
-    esperado = _champion_sha256()
+    esperado = champion_sha256()
     modelo = predict.default_model_path()
-    observador = _observer_from_metadata(
-        run, modelo.with_name(config.MODEL_METADATA_FILE.name)
-    )
+    observador = observer_from_metadata(run, model_metadata_path(modelo))
     drift_demo.run_demo(
         on_batch=observador,
         bundle_loader=partial(predict.load_bundle, modelo, expected_sha256=esperado),
     )
 
 
-def _observer_from_metadata(run: StageRun, path: Path) -> DriftBatchObserver:
+def model_metadata_path(model_path: Path) -> Path:
+    """Metadata ao lado do bundle (`models/` ou `models/champion/`, mesmos nomes)."""
+    return Path(model_path).with_name(config.MODEL_METADATA_FILE.name)
+
+
+def observer_from_metadata(
+    run: StageRun, path: Path, *, baseline_auc: float | None = None
+) -> DriftBatchObserver:
     """Observador a partir do metadata do modelo; ausente/incompatível é erro de domínio.
 
     Metadata de um modelo antigo (sem `score_reference`, por exemplo) ou corrompido
@@ -377,7 +405,7 @@ def _observer_from_metadata(run: StageRun, path: Path) -> DriftBatchObserver:
     path = _stage_file(path, "Metadata do modelo")
     try:
         metadata = json.loads(path.read_text(encoding="utf-8"))
-        return DriftBatchObserver(run, metadata)
+        return DriftBatchObserver(run, metadata, baseline_auc=baseline_auc)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         # `json.JSONDecodeError` e `UnicodeDecodeError` são `ValueError`.
         raise StagePreconditionError(
@@ -395,7 +423,16 @@ STATUS_APPROVED = "APROVADO"
 STATUS_BLOCKED = "BLOQUEADO"
 
 
-def _contract_report_files(
+def blocked_decision(result: ValidationResult) -> AlertDecision:
+    """`BLOQUEADO` com as regras violadas do contrato como motivos (sem repetir)."""
+    decision = decide_alert_level(
+        blocked=True, drifted_columns=[], score_psi=None, auc_drop=None
+    )
+    regras = tuple(dict.fromkeys(r["rule"] for r in result.rules_violated))
+    return replace(decision, reasons=regras or decision.reasons)
+
+
+def contract_report_files(
     batch_name: str, result: ValidationResult | None
 ) -> list[Path]:
     """Relatórios HTML/JSON do contrato do lote (os que existirem em disco).
@@ -448,16 +485,7 @@ class ContractBatchObserver:
         result: ValidationResult | None,
         n_scored: int,
     ) -> None:
-        record = self.record(batch_name, status, result, n_scored)
-        self._run.log_batch(record)
-        log_event(
-            logger,
-            "batch_alert",
-            batch_name=record.batch_name,
-            alert_level=record.decision.level.value,
-            alert_reasons=list(record.decision.reasons),
-            performance_evaluated=record.decision.performance_evaluated,
-        )
+        register_batch(self._run, self.record(batch_name, status, result, n_scored))
 
     def record(
         self,
@@ -485,7 +513,7 @@ class ContractBatchObserver:
                     f"Lote {batch_name} {STATUS_BLOCKED} sem o resultado do contrato: "
                     "sem as regras violadas não há motivo a registrar."
                 )
-            decision = self._blocked_decision(result)
+            decision = blocked_decision(result)
             n_rows, rejected, intentional = result.n_rows, result.n_rows, True
         else:
             raise StageFailedError(
@@ -501,19 +529,10 @@ class ContractBatchObserver:
             psi_by_column={},
             n_drifted_columns=0,
             model_version=self._model_version,
-            artifacts=_contract_report_files(batch_name, result),
+            artifacts=contract_report_files(batch_name, result),
             intentional_demo=intentional,
             batch_path=_contract_batch_path(batch_name),
         )
-
-    @staticmethod
-    def _blocked_decision(result: ValidationResult) -> AlertDecision:
-        decision = decide_alert_level(
-            blocked=True, drifted_columns=[], score_psi=None, auc_drop=None
-        )
-        # Motivos = regras violadas do contrato (sem repetir a mesma regra por coluna).
-        regras = tuple(dict.fromkeys(r["rule"] for r in result.rules_violated))
-        return replace(decision, reasons=regras or decision.reasons)
 
 
 def run_contract_demo(run: StageRun) -> None:
@@ -527,7 +546,7 @@ def run_contract_demo(run: StageRun) -> None:
     if not run.enabled:
         _require_demo_ok(contract_demo.main())
         return
-    esperado = _champion_sha256()
+    esperado = champion_sha256()
     modelo = predict.default_model_path()
     observador = ContractBatchObserver(run)
     status = contract_demo.main(
