@@ -58,9 +58,12 @@ class TrackingUnavailableError(RuntimeError):
 def redact_uri(uri: str) -> str:
     """URI sem credenciais, para mensagens, logs e tags. Redigir a mais é seguro.
 
-    - Tudo entre `esquema://` e a ÚLTIMA `@` vira `***@` (a senha pode ter `/`,
-      `?`, `#` ou `@` sem percent-encoding, o que engana o `urlsplit`).
+    - Tudo entre `esquema://` e a ÚLTIMA `@` vira `***@` (a senha pode ter `/`
+      ou `@` sem percent-encoding, o que engana o `urlsplit`).
     - A *query string* inteira (chaves e valores) vira `?***`; o fragmento, `#***`.
+    - Ambiguidade: se houver `@` DEPOIS do primeiro `?` ou `#` (senha com `?`/`#`,
+      ou `@` dentro da query/fragmento), não dá para saber onde termina o segredo
+      e só o esquema é mostrado: `esquema://***`.
     - Falha fechada: o que não tem a forma `esquema://` volta só como
       `esquema:***` (se houver esquema) ou `***`, nunca como texto cru.
 
@@ -71,11 +74,13 @@ def redact_uri(uri: str) -> str:
         so_esquema = _URI_SCHEME.match(uri)
         return f"{so_esquema.group(1)}:{_REDACTED}" if so_esquema else _REDACTED
     esquema, resto = com_autoridade.groups()
-    if "@" in resto:
-        resto = f"{_REDACTED}@{resto.rpartition('@')[2]}"
     corte = min((i for i in (resto.find("?"), resto.find("#")) if i >= 0), default=-1)
+    if corte >= 0 and "@" in resto[corte:]:
+        return f"{esquema}{_REDACTED}"
     if corte >= 0:
         resto = f"{resto[:corte]}{resto[corte]}{_REDACTED}"
+    if "@" in resto:
+        resto = f"{_REDACTED}@{resto.rpartition('@')[2]}"
     return f"{esquema}{resto}"
 
 

@@ -275,9 +275,16 @@ def test_reexecucao_com_mesmo_pipeline_run_id_acumula_runs(tracking_env, log_fil
         ("https://host/api#segredo123", "https://host/api#***"),
         # Senha com caracteres reservados sem percent-encoding.
         ("postgresql://u:pa/segredo123@h/db", "postgresql://***@h/db"),
-        ("postgresql://u:p?segredo123@h/db", "postgresql://***@h/db"),
-        ("postgresql://u:p#segredo123@h/db", "postgresql://***@h/db"),
         ("postgresql://u:p@segredo123@h/db", "postgresql://***@h/db"),
+        # Ambíguas (`@` depois do primeiro `?`/`#`): só o esquema.
+        ("postgresql://u:p?segredo123@h/db", "postgresql://***"),
+        ("postgresql://u:p#segredo123@h/db", "postgresql://***"),
+        ("https://host/api?token=abc@SECRET9", "https://***"),
+        ("http://admin:pw@host/x?email=a@SECRET9", "http://***"),
+        ("https://host/p#frag@SECRET9", "https://***"),
+        ("postgresql://h/db?password=p@ssword", "postgresql://***"),
+        ("http://[::1]:5000/", "http://[::1]:5000/"),
+        ("http://host:5000/x?a=1", "http://host:5000/x?***"),
         (
             "postgresql://h/db?password=segredo123&sslpassword=segredo123",
             "postgresql://h/db?***",
@@ -296,7 +303,8 @@ def test_reexecucao_com_mesmo_pipeline_run_id_acumula_runs(tracking_env, log_fil
 def test_redact_uri_remove_credenciais(uri, esperado):
     redigida = redact_uri(uri)
     assert redigida == esperado
-    assert "segredo123" not in redigida
+    for segredo in ("segredo123", "SECRET9", "ssword", "admin:", "pw@"):
+        assert segredo not in redigida
 
 
 @pytest.mark.parametrize(
