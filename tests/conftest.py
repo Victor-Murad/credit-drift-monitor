@@ -79,6 +79,32 @@ def make_valid_df(n: int = 300, seed: int = 0, labeled: bool = True) -> pd.DataF
     return df
 
 
+def sha256_de(path: Path) -> str:
+    """sha256 de um arquivo (conferência de bundle/champion nos testes)."""
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def cliente_mlflow(uri: str):
+    """`MlflowClient` com tracking e registry no mesmo URI (o de `tracking_env`)."""
+    from mlflow import MlflowClient
+
+    return MlflowClient(tracking_uri=uri, registry_uri=uri)
+
+
+@pytest.fixture
+def champion_dir(tmp_path, monkeypatch) -> Path:
+    """`models/champion/` redirecionado para `tmp_path`."""
+    pasta = tmp_path / "models" / "champion"
+    monkeypatch.setattr(config, "CHAMPION_DIR", pasta)
+    monkeypatch.setattr(config, "CHAMPION_FILE", pasta / "baseline_model.joblib")
+    monkeypatch.setattr(
+        config, "CHAMPION_METADATA_FILE", pasta / "baseline_metadata.json"
+    )
+    return pasta
+
+
 @pytest.fixture
 def valid_df() -> pd.DataFrame:
     return make_valid_df()

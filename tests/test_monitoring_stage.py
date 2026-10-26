@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
+import os
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,27 +10,22 @@ from types import SimpleNamespace
 import mlflow
 import pandas as pd
 import pytest
-from mlflow import MlflowClient
 
 from src import config
 from src.config import RAW_COLUMN_MAP
 from src.data import prepare
 from src.models import train
-from src.monitoring import stage
+from src.monitoring import registry, stage
 from src.monitoring.registry import get_alias_version
 from src.validation.gate import enforce_contract
-from tests.conftest import make_valid_df
+from tests.conftest import cliente_mlflow, make_valid_df, sha256_de
 from tests.test_prepare import _raw_from
 
 FAST_XGB = {"n_estimators": 20, "n_jobs": 1}
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 @pytest.fixture
-def caminhos(tmp_path, monkeypatch) -> SimpleNamespace:
+def caminhos(tmp_path, monkeypatch, champion_dir) -> SimpleNamespace:
     """Redireciona prepare/train/champion/log para `tmp_path` (nada do repositório)."""
     p = SimpleNamespace(
         raw=tmp_path / "raw" / "application_train.csv",
@@ -66,12 +61,7 @@ def caminhos(tmp_path, monkeypatch) -> SimpleNamespace:
         ),
     )
     monkeypatch.setattr(train, "XGB_PARAMS", {**train.XGB_PARAMS, **FAST_XGB})
-    # champion servido
-    monkeypatch.setattr(config, "CHAMPION_DIR", p.champion)
-    monkeypatch.setattr(config, "CHAMPION_FILE", p.champion / "baseline_model.joblib")
-    monkeypatch.setattr(
-        config, "CHAMPION_METADATA_FILE", p.champion / "baseline_metadata.json"
-    )
+    assert champion_dir == p.champion  # champion servido (fixture do conftest)
     return p
 
 
@@ -83,12 +73,8 @@ def referencia(caminhos) -> pd.DataFrame:
     return df
 
 
-def _client(uri: str) -> MlflowClient:
-    return MlflowClient(tracking_uri=uri, registry_uri=uri)
-
-
 def _runs(uri: str, filtro: str):
-    client = _client(uri)
+    client = cliente_mlflow(uri)
     experimento = client.get_experiment_by_name(config.MLFLOW_EXPERIMENT)
     return client.search_runs([experimento.experiment_id], filter_string=filtro)
 
@@ -113,14 +99,14 @@ def test_stage_train_registra_run_de_treino(tracking_env, caminhos, referencia):
     assert params["max_depth"] == str(train.XGB_PARAMS["max_depth"])
     assert 0 < treino.data.metrics["roc_auc"] <= 1
     assert 0 <= treino.data.metrics["ks"] <= 1
-    assert treino.data.tags["reference_sha256"] == _sha256(caminhos.reference)
-    assert treino.data.tags["model_sha256"] == _sha256(caminhos.model)
+    assert treino.data.tags["reference_sha256"] == sha256_de(caminhos.reference)
+    assert treino.data.tags["model_sha256"] == sha256_de(caminhos.model)
 
 
 def test_run_de_treino_anexa_bundle_e_metadata(tracking_env, caminhos, referencia):
     assert stage.main(["train"]) == 0
     treino = _run_de_treino(tracking_env)
-    client = _client(tracking_env)
+    client = cliente_mlflow(tracking_env)
     bundle = sorted(a.path for a in client.list_artifacts(treino.info.run_id, "bundle"))
     assert bundle == ["bundle/baseline_metadata.json", "bundle/baseline_model.joblib"]
 
@@ -141,10 +127,10 @@ def test_train_bootstrap_registra_v1_como_champion(tracking_env, caminhos, refer
     assert champion.version == 1  # MLflow 3.x devolve `int` (o plano dizia "1")
     assert champion.tags["origin"] == "baseline"
     assert champion.tags["bundle_model_version"] == train.MODEL_VERSION
-    assert champion.tags["reference_sha256"] == _sha256(caminhos.reference)
+    assert champion.tags["reference_sha256"] == sha256_de(caminhos.reference)
     arquivo = caminhos.champion / "baseline_model.joblib"
     assert arquivo.exists()
-    assert _sha256(arquivo) == champion.tags["model_sha256"]
+    assert sha256_de(arquivo) == champion.tags["model_sha256"]
     assert (caminhos.champion / "baseline_metadata.json").exists()
 
 
@@ -154,11 +140,48 @@ def test_train_repetido_nao_move_champion(tracking_env, caminhos, referencia):
     antes = arquivo.read_bytes()
     assert stage.main(["train"]) == 0
 
-    client = _client(tracking_env)
+    client = cliente_mlflow(tracking_env)
     v2 = client.get_model_version(config.REGISTERED_MODEL_NAME, "2")
     assert v2.tags["origin"] == "baseline"
     assert get_alias_version("champion").version == 1
     assert arquivo.read_bytes() == antes
+
+
+def _quebrar_export(monkeypatch, como: str) -> None:
+    if como == "hash":
+        # Hash do bundle baixado diverge da tag `model_sha256`.
+        monkeypatch.setattr(registry, "file_sha256", lambda path: "0" * 64)
+        return
+    original = os.replace
+
+    def _replace(origem, destino):
+        if Path(destino) == Path(config.CHAMPION_FILE):
+            raise PermissionError(13, "Permission denied", str(destino))
+        return original(origem, destino)
+
+    monkeypatch.setattr(registry.os, "replace", _replace)
+
+
+@pytest.mark.parametrize("como", ["hash", "oserror"])
+def test_export_falho_nao_da_alias_e_proximo_train_recupera(
+    tracking_env, caminhos, referencia, capsys, como
+):
+    with pytest.MonkeyPatch.context() as mp:
+        _quebrar_export(mp, como)
+        assert stage.main(["train"]) == 1
+    saida = capsys.readouterr().err
+    assert "ERRO no estágio train" in saida
+    assert "Traceback" not in saida
+    assert get_alias_version("champion") is None
+    assert not (caminhos.champion / "baseline_model.joblib").exists()
+    assert not (caminhos.champion / "baseline_metadata.json").exists()
+
+    # Com o export funcionando, o train seguinte faz o bootstrap (v2).
+    assert stage.main(["train"]) == 0
+    champion = get_alias_version("champion")
+    assert champion.version == 2
+    arquivo = caminhos.champion / "baseline_model.joblib"
+    assert sha256_de(arquivo) == champion.tags["model_sha256"]
 
 
 def test_stage_prepare_registra_volume(tracking_env, caminhos):
@@ -227,5 +250,5 @@ def test_stage_desconhecido_e_erro_de_uso(nome, capsys):
 def test_train_main_devolve_bundle_e_metadata(caminhos, referencia):
     bundle, metadata = train.main()
     assert bundle["model_version"] == train.MODEL_VERSION
-    assert metadata["artifact"]["sha256"] == _sha256(caminhos.model)
-    assert metadata["data_lineage"]["reference_sha256"] == _sha256(caminhos.reference)
+    assert metadata["artifact"]["sha256"] == sha256_de(caminhos.model)
+    assert metadata["data_lineage"]["reference_sha256"] == sha256_de(caminhos.reference)

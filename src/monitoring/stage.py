@@ -4,8 +4,9 @@
 
 Cada estágio abre um run de estágio (`tracked_stage`) e chama o `main` do módulo
 de baixo, que não conhece o MLflow. O `train` cria ainda o run de treino (filho),
-registra a versão no Model Registry e, só na primeira vez (sem `champion`), dá o
-alias `champion` e copia o modelo para `models/champion/`.
+registra a versão no Model Registry e, só na primeira vez (sem `champion`), copia o
+modelo para `models/champion/` (conferindo o sha256) e só então dá o alias
+`champion`: um export falho não deixa alias, e o `train` seguinte tenta de novo.
 
 Falha fechada: sem MLflow acessível, imprime o erro (URI já redigida) e sai com
 código 1; `MONITORING_TRACKING=off` roda o estágio sem registro.
@@ -32,17 +33,18 @@ from src.logging_utils import RUN_ID, get_logger, log_event
 from src.models import train
 from src.models.integrity import ModelIntegrityError
 from src.monitoring.registry import (
+    CHAMPION_ALIAS,
     bootstrap_champion,
     export_champion,
+    get_alias_version,
     register_model_version,
 )
 from src.monitoring.tracking import (
-    NullStageRun,
     StageRun,
     TrackingUnavailableError,
-    _require_path,
-    _tracking_errors,
+    require_path,
     tracked_stage,
+    tracking_errors,
 )
 
 logger = get_logger("monitoring.stage")
@@ -77,12 +79,12 @@ def run_train(run: StageRun) -> None:
     """Treina o baseline e, com o rastreamento ligado, registra e faz o bootstrap."""
     bundle, metadata = train.main()
     run.add_rows(metadata["data_lineage"]["reference_rows"])
-    if isinstance(run, NullStageRun):
+    if not run.enabled:
         return
 
     # Lidos do módulo na chamada: os testes redirecionam os caminhos do treino.
-    model_path = _require_path(train.MODEL_FILE, "Bundle do modelo")
-    metadata_path = _require_path(train.MODEL_METADATA_FILE, "Metadata do modelo")
+    model_path = require_path(train.MODEL_FILE, "Bundle do modelo")
+    metadata_path = require_path(train.MODEL_METADATA_FILE, "Metadata do modelo")
     exemplo = pd.read_parquet(
         train.REFERENCE_FILE, columns=config.MODEL_INPUT_COLUMNS
     ).head(INPUT_EXAMPLE_ROWS)
@@ -99,7 +101,7 @@ def run_train(run: StageRun) -> None:
         "model_sha256": metadata["artifact"]["sha256"],
     }
 
-    with _tracking_errors("Falha ao registrar o run de treino"):
+    with tracking_errors("Falha ao registrar o run de treino"):
         experimento = mlflow.get_run(run.run_id).info.experiment_id
         treino = mlflow.start_run(
             experiment_id=experimento,
@@ -114,7 +116,7 @@ def run_train(run: StageRun) -> None:
             },
         )
     with treino:
-        with _tracking_errors("Falha ao registrar o run de treino"):
+        with tracking_errors("Falha ao registrar o run de treino"):
             mlflow.log_params(metadata["xgboost_params"])
             mlflow.log_metrics(_training_metrics(metadata))
         versao = register_model_version(
@@ -131,8 +133,19 @@ def run_train(run: StageRun) -> None:
             },
         )
 
+    _bootstrap(versao, shas)
+
+
+def _bootstrap(versao: int, shas: dict[str, str]) -> None:
+    """Sem champion: exporta (conferindo o sha256) e só então dá o alias.
+
+    Export falho levanta antes do alias: nenhum champion aponta para um
+    `models/champion/` ausente, e o `train` seguinte tenta de novo.
+    """
+    if get_alias_version(CHAMPION_ALIAS) is not None:
+        return
+    export_champion(versao)
     if bootstrap_champion(versao):
-        export_champion(versao)
         log_event(logger, "champion_bootstrap", version=versao, **shas)
 
 

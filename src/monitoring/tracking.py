@@ -99,7 +99,7 @@ def _describe_error(exc: BaseException) -> str:
 
 
 @contextmanager
-def _tracking_errors(contexto: str) -> Iterator[None]:
+def tracking_errors(contexto: str) -> Iterator[None]:
     """Converte erros de conexão/permissão do MLflow em `TrackingUnavailableError`.
 
     A mensagem e o evento de log levam só a URI redigida e uma descrição curta do
@@ -126,7 +126,12 @@ def _tracking_errors(contexto: str) -> Iterator[None]:
         raise TrackingUnavailableError(mensagem) from exc
 
 
-def _client() -> MlflowClient:
+def client() -> MlflowClient:
+    """`MlflowClient` com tracking e registry em `MLFLOW_TRACKING_URI` (lido na chamada).
+
+    Não depende do estado fluente do MLflow; os erros dele devem passar por
+    `tracking_errors` para a mensagem sair redigida.
+    """
     uri = config.MLFLOW_TRACKING_URI
     return MlflowClient(tracking_uri=uri, registry_uri=uri)
 
@@ -138,20 +143,20 @@ def configure_tracking() -> str:
     `MLFLOW_ARTIFACT_ROOT` se ele não existir e faz um `search_runs(max_results=1)`
     para provar leitura do banco. Devolve o `experiment_id`.
     """
-    with _tracking_errors("MLflow indisponível"):
+    with tracking_errors("MLflow indisponível"):
         uri = config.MLFLOW_TRACKING_URI
         mlflow.set_tracking_uri(uri)
         mlflow.set_registry_uri(uri)
-        client = _client()
-        experimento = client.get_experiment_by_name(config.MLFLOW_EXPERIMENT)
+        cliente = client()
+        experimento = cliente.get_experiment_by_name(config.MLFLOW_EXPERIMENT)
         if experimento is None:
-            experiment_id = client.create_experiment(
+            experiment_id = cliente.create_experiment(
                 config.MLFLOW_EXPERIMENT,
                 artifact_location=Path(config.MLFLOW_ARTIFACT_ROOT).absolute().as_uri(),
             )
         else:
             experiment_id = experimento.experiment_id
-        client.search_runs([experiment_id], max_results=1)
+        cliente.search_runs([experiment_id], max_results=1)
         mlflow.set_experiment(experiment_id=experiment_id)
     return experiment_id
 
@@ -225,8 +230,12 @@ def _batch_metrics(record: BatchRecord) -> dict[str, float]:
     return metricas
 
 
-def _require_path(path: Path, o_que: str) -> Path:
-    """Confere um caminho local antes de falar com o MLflow."""
+def require_path(path: Path, o_que: str) -> Path:
+    """Confere um caminho local antes de falar com o MLflow.
+
+    Caminho inexistente é `FileNotFoundError` (erro local), para não ser confundido
+    com MLflow indisponível dentro de `tracking_errors`.
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"{o_que} não encontrado: {path}")
@@ -234,16 +243,21 @@ def _require_path(path: Path, o_que: str) -> Path:
 
 
 def _log_path(run_id: str, path: Path, artifact_path: str | None) -> None:
-    client = _client()
+    cliente = client()
     if path.is_dir():
         destino = f"{artifact_path}/{path.name}" if artifact_path else path.name
-        client.log_artifacts(run_id, str(path), artifact_path=destino)
+        cliente.log_artifacts(run_id, str(path), artifact_path=destino)
     else:
-        client.log_artifact(run_id, str(path), artifact_path=artifact_path)
+        cliente.log_artifact(run_id, str(path), artifact_path=artifact_path)
 
 
 class StageRun:
-    """Run de estágio no MLflow. `NullStageRun` tem a mesma interface, sem efeito."""
+    """Run de estágio no MLflow. `NullStageRun` tem a mesma interface, sem efeito.
+
+    `enabled` diz se há rastreamento (e Registry) por trás do run.
+    """
+
+    enabled = True
 
     def __init__(self, run_id: str, experiment_id: str, stage: str) -> None:
         self.run_id: str | None = run_id
@@ -262,16 +276,16 @@ class StageRun:
 
     def set_metric(self, key: str, value: float) -> None:
         """Métrica avulsa no run de estágio."""
-        with _tracking_errors("Falha ao registrar métrica"):
-            _client().log_metric(self.run_id, key, float(value))
+        with tracking_errors("Falha ao registrar métrica"):
+            client().log_metric(self.run_id, key, float(value))
 
     def attach(self, path: Path, *, artifact_path: str | None = None) -> None:
         """Anexa um arquivo (ou diretório) ao run de estágio.
 
         Caminho inexistente é erro local (`FileNotFoundError`), não do MLflow.
         """
-        path = _require_path(path, "Artefato")
-        with _tracking_errors("Falha ao anexar artefato"):
+        path = require_path(path, "Artefato")
+        with tracking_errors("Falha ao anexar artefato"):
             _log_path(self.run_id, path, artifact_path)
 
     def log_batch(self, record: BatchRecord) -> str | None:
@@ -285,13 +299,13 @@ class StageRun:
         `batch_path` e `artifacts` são conferidos (e o hash do lote calculado) antes
         de abrir o run: caminho inexistente é `FileNotFoundError`, sem run filho.
         """
-        artefatos = [_require_path(a, "Artefato do lote") for a in record.artifacts]
+        artefatos = [require_path(a, "Artefato do lote") for a in record.artifacts]
         if record.batch_path is not None:
-            _require_path(record.batch_path, "Lote")
+            require_path(record.batch_path, "Lote")
         tags = _batch_tags(record)
         metricas = _batch_metrics(record)
         with (
-            _tracking_errors("Falha ao registrar o lote"),
+            tracking_errors("Falha ao registrar o lote"),
             mlflow.start_run(
                 experiment_id=self._experiment_id,
                 run_name=record.batch_name,
@@ -348,9 +362,9 @@ class StageRun:
         if self._intentional_demo:
             tags["intentional_demo"] = "true"
         agora = int(time.time() * 1000)
-        with _tracking_errors("Falha ao finalizar o run do estágio"):
-            client = _client()
-            client.log_batch(
+        with tracking_errors("Falha ao finalizar o run do estágio"):
+            cliente = client()
+            cliente.log_batch(
                 self.run_id,
                 metrics=[Metric(k, v, agora, 0) for k, v in metricas.items()],
                 tags=[RunTag(k, v) for k, v in tags.items()],
@@ -369,11 +383,13 @@ class StageRun:
             arquivo.write_text(
                 "".join(f"{linha}\n" for linha in linhas), encoding="utf-8"
             )
-            _client().log_artifact(self.run_id, str(arquivo), artifact_path="logs")
+            client().log_artifact(self.run_id, str(arquivo), artifact_path="logs")
 
 
 class NullStageRun(StageRun):
     """Rastreamento desligado (`MONITORING_TRACKING=off`): tudo é no-op."""
+
+    enabled = False
 
     def __init__(self) -> None:
         # Não chama `super().__init__`: não há run, experimento nem contadores.
@@ -414,7 +430,7 @@ def tracked_stage(stage: str, *, pipeline_run_id: str = RUN_ID) -> Iterator[Stag
 
     experiment_id = configure_tracking()
     since = datetime.now(UTC)
-    with _tracking_errors("Falha ao abrir o run do estágio"):
+    with tracking_errors("Falha ao abrir o run do estágio"):
         ativo = mlflow.start_run(
             experiment_id=experiment_id,
             run_name=stage,
@@ -446,7 +462,7 @@ def _close_stage(
 ) -> None:
     """Fecha o run de estágio sem mascarar a exceção original do estágio.
 
-    Registro final e encerramento passam por `_tracking_errors` (mensagem redigida).
+    Registro final e encerramento passam por `tracking_errors` (mensagem redigida).
     Estágio OK com registro falho: o run termina `FAILED` e a primeira
     `TrackingUnavailableError` é levantada. Estágio que já falhou: a exceção dele
     sai intacta e a falha do registro vai só para o log.
@@ -491,7 +507,7 @@ def _end_stage_runs(run: StageRun, status: str) -> TrackingUnavailableError | No
     primeiro: TrackingUnavailableError | None = None
     while (ativo := mlflow.active_run()) is not None:
         try:
-            with _tracking_errors("Falha ao encerrar o run do estágio"):
+            with tracking_errors("Falha ao encerrar o run do estágio"):
                 mlflow.end_run(status=status)
         except TrackingUnavailableError as exc:
             primeiro = primeiro or exc

@@ -446,6 +446,7 @@ dependencies = [
     { name = "pandera" },
     { name = "pyarrow" },
     { name = "scikit-learn" },
+    { name = "skops" },
     { name = "xgboost" },
 ]
 
@@ -473,6 +474,7 @@ requires-dist = [
     { name = "pandera", specifier = ">=0.24" },
     { name = "pyarrow", specifier = ">=17.0" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "skops", specifier = ">=0.16,<0.17" },
     { name = "xgboost", specifier = ">=2.1" },
 ]
 

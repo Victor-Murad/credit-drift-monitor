@@ -21,6 +21,9 @@ dependencies = [
     # Observabilidade e Model Registry locais (Etapa 3 -- ver docs/adrs/0006)
     # Teto <4: a API de aliases do Registry e o backend SQLite sao os da 3.x.
     "mlflow>=3.0,<4",
+    # Serializacao segura do modelo logado no MLflow (padrao do mlflow.sklearn
+    # 3.x; src/monitoring/registry.py declara os tipos confiaveis).
+    "skops>=0.16,<0.17",
 ]
 
 [dependency-groups]

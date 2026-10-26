@@ -351,7 +351,7 @@ def _quebrar_mlflow(monkeypatch) -> None:
     def _sem_banco():
         raise OSError("banco sumiu")
 
-    monkeypatch.setattr(tracking, "_client", _sem_banco)
+    monkeypatch.setattr(tracking, "client", _sem_banco)
 
 
 def test_registro_final_falha_com_estagio_ok_levanta(
@@ -469,6 +469,27 @@ def test_registro_final_falha_nao_mascara_erro_do_estagio(
             raise erro
     assert capturada.value is erro
     assert mlflow.active_run() is None
+
+
+def test_stage_run_informa_se_o_rastreamento_esta_ligado(
+    tracking_env, log_file, monkeypatch
+):
+    with tracked_stage("train", pipeline_run_id="pipe-14") as run:
+        assert run.enabled is True
+    monkeypatch.setenv("MONITORING_TRACKING", "off")
+    with tracked_stage("train") as nulo:
+        assert nulo.enabled is False
+    assert NullStageRun().enabled is False
+
+
+def test_helpers_publicos_do_adaptador(tracking_env, tmp_path):
+    """`client`, `require_path` e `tracking_errors` são usados por outros módulos."""
+    assert tracking.client().tracking_uri == tracking_env
+    with pytest.raises(FileNotFoundError, match="Coisa não encontrado"):
+        tracking.require_path(tmp_path / "sumiu", "Coisa")
+    with pytest.raises(TrackingUnavailableError, match="Contexto de teste"):
+        with tracking.tracking_errors("Contexto de teste"):
+            raise OSError(5, "Input/output error")
 
 
 def test_tracking_off_nao_cria_banco(tmp_path, monkeypatch, log_file):
