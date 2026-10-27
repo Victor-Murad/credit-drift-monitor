@@ -2,7 +2,7 @@
 
 > **Para quem executar:** SUB-SKILL OBRIGATÓRIA: `superpowers:subagent-driven-development` (recomendado) ou `superpowers:executing-plans`. Os passos usam `- [ ]` para acompanhamento.
 > **Revisão:** revisado por um agente Opus em 2026-10-26 (21 achados, incorporados aqui e na spec).
-> **Status:** rascunho para aprovação. Nada foi implementado. Pelo AGENTS.md, nenhum código de produto começa antes do "sim" do usuário a este plano.
+> **Status:** aprovado em 2026-10-26 e executado (Tasks 1 a 17). Os passos `- [ ]` abaixo são o roteiro original e não foram marcados; a evidência de execução está em `docs/ai/reports/2026-10-27-etapa3-aceite.md`.
 
 **Goal:** Entregar o ambiente de rastreamento (MLflow + DVC locais) com níveis de alerta por lote e, depois do núcleo aceito, o ciclo de retreino, Model Registry e promoção humana.
 

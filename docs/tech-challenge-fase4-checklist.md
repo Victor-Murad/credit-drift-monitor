@@ -7,9 +7,9 @@
 
 ---
 
-## Estado da validação (2026-10-25)
+## Estado da validação (2026-10-25; Etapa 3 atualizada em 2026-10-27)
 
-Validado contra o repositório e reproduzido ponta a ponta com o dataset real (2026-10-25): `pytest` com 74 testes passando, cobertura 95% (`make test-cov`, piso 80%), `ruff` e `lint-imports` limpos, baseline e relatórios Evidently versionados. **Etapas 1 e 2 implementadas e com as pendências de código/documentação fechadas; Etapas 3 e 4 pendentes** (README ainda marca "Em construção"). Situação dos pontos levantados em 2026-10-21:
+Validado contra o repositório e reproduzido ponta a ponta com o dataset real (2026-10-25): `pytest` com 74 testes passando, cobertura 95% (`make test-cov`, piso 80%; na Etapa 3 a suíte chegou a 458 testes e 97,63%), `ruff` e `lint-imports` limpos, baseline e relatórios Evidently versionados. **Etapas 1 e 2 implementadas e com as pendências de código/documentação fechadas; Etapa 3 implementada e aceita com os dados reais (2026-10-27); Etapa 4 pendente** (README marca "Em construção"). Situação dos pontos levantados em 2026-10-21:
 
 - [X] **Instalação limpa (1.2) e reprodução ponta a ponta (4.3):** `uv sync --locked` + `ruff` + `lint-imports` + `pytest` verificados numa cópia nova do projeto (sem `.venv`), e `make data && make train && make etapa1 && make etapa2` executados com o `application_train.csv` real (307.511 linhas, 21 rejeitadas, 215.243 / 92.247 no split, idênticos ao README). O retreino nesta máquina deu ROC-AUC 0,7491 (antes 0,7494): diferença numérica entre ambientes, sem mudar conclusões.
 - [X] **Concept drift (2.3):** limitação documentada no README, no `docs/etapa-2-...md` e no sumário da demo (o teste sobre `target` mede label shift). A queda de ROC-AUC (`src/drift/performance.py`) entra no sumário JSON/MD (`performance`), pronta para a Etapa 3.

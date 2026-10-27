@@ -68,10 +68,12 @@ Este projeto constrói a camada que impede essa degradação de passar desperceb
 │   └── samples/                        #   lotes de demonstração (válido / inválido)
 ├── docs/adrs/                           # decisões de arquitetura
 ├── models/                             # baseline treinado + metadados (versionados)
+│   └── champion/                       #   modelo servido (gerado; ignorado pelo git)
 ├── reports/
 │   ├── data_contract/                  # evidências do contrato (HTML/JSON/MD)
 │   ├── model/                          # métricas do baseline
-│   └── drift/                          # evidências de Data/Concept Drift (Etapa 2)
+│   ├── drift/                          # evidências de Data/Concept Drift (Etapa 2)
+│   └── monitor/, retrain/              # saídas por lote dos comandos (geradas; ignoradas pelo git)
 ├── src/
 │   ├── config.py                       # caminhos, seed, features
 │   ├── logging_utils.py                # logs estruturados (JSON lines)
@@ -310,7 +312,7 @@ make rollback ARGS="--reason 'motivo'"
 ### DVC: reprodução local
 
 - [`dvc.yaml`](dvc.yaml) tem os estágios `prepare → train → {contract_demo, drift_demo}`. Cada estágio chama `uv run python -m src.monitoring.stage <estágio>` e declara os `outs` arquivo por arquivo.
-- `models/` e `reports/` são `outs` com `cache: false`, então continuam versionados no git. Os outs de `data/` vão para o cache do DVC, que fica fora do git.
+- `models/` e `reports/` são `outs` com `cache: false`, então continuam versionados no git (exceto `models/champion/`, `reports/monitor/` e `reports/retrain/`, que são estado local ignorado). Os outs de `data/` vão para o cache do DVC, que fica fora do git.
 - O CSV bruto é `deps` do `prepare`, e o hash vai para o [`dvc.lock`](dvc.lock), que é versionado (só hashes e tamanhos). Não se usa `dvc add`.
 - `make repro` (`uv run dvc repro`) roda só os estágios com mudança. Cada estágio recebe um `PIPELINE_RUN_ID` próprio. Sem mudança, não gera runs novos. Para a demonstração completa no MLflow, use `make pipeline`. Os relatórios têm timestamp, então o `dvc.lock` e `reports/` mudam a cada rodada. Isso é esperado.
 - **Remoto local (opcional), só em `.dvc/config.local`:**
