@@ -391,6 +391,48 @@ def test_promote_falha_sem_mlflow_nem_para_auditar_vai_ao_log(
     assert "auditoria falhou" in erro
 
 
+def test_promote_champion_mudou_durante_o_comando_nao_altera_nada(
+    cenario, tracking_env, monkeypatch, capsys
+):
+    v2, _ = _versao(cenario.tmp_path, "challenger", seed=1, aucs=ELEGIVEL)
+    v3, _ = _versao(cenario.tmp_path, "outro", seed=2, aucs=ELEGIVEL)
+    avaliar = promote.evaluate_candidate
+
+    def _avaliar_e_alguem_promove(version):
+        avaliacao = avaliar(version)
+        set_alias("champion", v3)  # promoção em paralelo
+        return avaliacao
+
+    monkeypatch.setattr(promote, "evaluate_candidate", _avaliar_e_alguem_promove)
+    antes = _snapshot(cenario.models_dir)
+
+    assert promote.main(["--version", str(v2)]) == monitor.EXIT_OPERATIONAL_ERROR
+
+    assert "mudou durante" in capsys.readouterr().err
+    assert (_alias("champion"), _alias("previous")) == (v3, None)
+    assert _snapshot(cenario.models_dir) == antes
+    assert _auditorias(tracking_env) == []
+
+
+def test_promote_auditoria_final_falha_avisa_que_a_troca_foi_feita(
+    cenario, tracking_env, monkeypatch, capsys
+):
+    v2, sha2 = _versao(cenario.tmp_path, "challenger", seed=1, aucs=ELEGIVEL)
+
+    def _sem_auditoria(**kwargs):
+        raise TrackingUnavailableError("Falha ao registrar o run de auditoria")
+
+    monkeypatch.setattr(registry, "log_audit_run", _sem_auditoria)
+
+    assert promote.main([]) == monitor.EXIT_OPERATIONAL_ERROR
+
+    erro = capsys.readouterr().err
+    assert "concluída e reconferida (CONSISTENT)" in erro
+    assert "não foi gravado" in erro
+    assert (_alias("champion"), _alias("previous")) == (v2, 1)
+    assert sha256_de(config.CHAMPION_FILE) == sha2
+
+
 def test_promote_sem_champion_falha_com_mensagem(tracking_env, tmp_path, capsys):
     _versao(tmp_path, "challenger", seed=1, aucs=ELEGIVEL)
     assert promote.main([]) == monitor.EXIT_OPERATIONAL_ERROR
@@ -401,6 +443,13 @@ def test_reconferencia_aponta_arquivo_ausente_metadata_e_registry(
     cenario, tracking_env, monkeypatch
 ):
     assert promote.served_state_problems(1, None) == []
+
+    def _ilegivel(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    with monkeypatch.context() as m:
+        m.setattr(promote, "file_sha256", _ilegivel)
+        assert any("ilegível" in p for p in promote.served_state_problems(1, None))
     config.CHAMPION_METADATA_FILE.write_text("{}", encoding="utf-8")
     assert any("artifact.sha256" in p for p in promote.served_state_problems(1, None))
     config.CHAMPION_FILE.unlink()

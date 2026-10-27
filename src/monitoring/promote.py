@@ -224,7 +224,10 @@ def served_state_problems(champion: int, previous: int | None) -> list[str]:
     if not arquivo.is_file():
         return [*problemas, f"arquivo servido ausente: {arquivo}"]
     esperado = None if atual is None else atual.tags.get("model_sha256")
-    obtido = file_sha256(arquivo)
+    try:
+        obtido = file_sha256(arquivo)
+    except OSError as exc:
+        return [*problemas, f"arquivo servido ilegível ({arquivo}): {exc.strerror}"]
     if obtido != esperado:
         problemas.append(
             f"sha256 do arquivo servido ({obtido[:12]}...) diverge da tag model_sha256 "
@@ -363,6 +366,12 @@ def _recover(
 def _apply(transicao: _Transition) -> TransitionResult:
     """Passos 2 a 6: confere o arquivo, move os aliases, troca o arquivo e reconfere."""
     antes = (_current_champion(), _alias_number(PREVIOUS_ALIAS))
+    if antes[0] != transicao.details["from_version"]:
+        raise RegistryStateError(
+            f"O champion mudou durante o comando (v{transicao.details['from_version']} "
+            f"-> v{antes[0]}; promoção ou rollback em paralelo?): nada foi alterado. "
+            "Rode o comando de novo."
+        )
     with registry.staged_champion(transicao.target) as preparado:  # passo 2
         passo: str | None = STEP_ALIASES
         recuperado = False
@@ -382,7 +391,15 @@ def _apply(transicao: _Transition) -> TransitionResult:
     problemas = served_state_problems(transicao.target, transicao.expected_previous)
     status = STATUS_INCONSISTENT if problemas else STATUS_CONSISTENT
     detalhes = {"model_sha256": preparado.model_sha256, "served_problems": problemas}
-    auditoria = _audit(transicao, status, detalhes)
+    try:
+        auditoria = _audit(transicao, status, detalhes)
+    except TrackingUnavailableError as exc:
+        raise TransitionFailedError(
+            f"Troca do champion para a versão {transicao.target} "
+            f"({transicao.action}) concluída e reconferida ({status}), mas o run de "
+            f"auditoria não foi gravado: {exc} Registre a troca à mão (quem, quando, "
+            "por quê)."
+        ) from exc
     log_event(
         logger,
         "champion_transition_done",
@@ -397,8 +414,9 @@ def _apply(transicao: _Transition) -> TransitionResult:
     if problemas:
         raise TransitionFailedError(
             f"{_LABELS[transicao.action][0]} para a versão {transicao.target} "
-            f"terminou, mas a reconferência diverge ({'; '.join(problemas)}). Estado gravado como "
-            f"{STATUS_INCONSISTENT} no run de auditoria {auditoria}: o `load_bundle` "
+            f"terminou, mas a reconferência diverge ({'; '.join(problemas)}). Estado "
+            f"gravado como {STATUS_INCONSISTENT} no run de auditoria {auditoria}: o "
+            "`load_bundle` "
             "recusa o modelo até a correção (ex.: `python -m src.monitoring.promote "
             "rollback`)."
         )
