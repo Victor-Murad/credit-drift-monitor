@@ -154,7 +154,7 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 >
 > O teste de aceite real (`tests/integration/test_acceptance_real.py`) deu **5 passed, 0 skipped**. `make lint` saiu limpo, com 3 contratos do import-linter KEPT. `make test-cov` deu 287 passed e 97,17% de cobertura. `make repro` gerou o `dvc.lock`, e a segunda rodada pulou os 4 estágios. Depois disso, `git status` não mostrou nada de `data/`, `mlflow.db` ou `mlartifacts/`.
 >
-> **Pendente (Fase B, §4.7 da spec):** retreino por alerta `CRÍTICO`, challenger no Registry, promoção, rollback e ADR-0007.
+> **Extensão §4.7 (Fase B), executada com os dados reais:** retreino por alerta `CRÍTICO` (challenger v3, ganho +0,1316 no holdout, regressão +0,0089), promoção, `make demo-drift` com o champion novo e rollback, todos auditados. Evidências em [`docs/ai/reports/2026-10-27-etapa3-aceite.md`](ai/reports/2026-10-27-etapa3-aceite.md). A repromoção da v3 depende de `--override` e fica com o usuário.
 
 ### 3.1 Decisão de arquitetura e ambiente adicional
 
@@ -198,7 +198,7 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 - [X] Logs de pipeline e resultados de Drift centralizados em um único local
 - [X] Métricas de saúde documentadas e visíveis no dashboard/ambiente de rastreamento
 
-> O checklist de saída vale para o **núcleo** da Etapa 3 (§4.1 a §4.6 da spec). A extensão de retreino, Registry com challenger, promoção e rollback (§4.7, critérios 9 e 10, incluindo a ADR-0007) segue pendente para a Fase B, e o usuário valida o núcleo antes dela.
+> O checklist de saída vale para o **núcleo** da Etapa 3 (§4.1 a §4.6 da spec). A extensão de retreino, Registry com challenger, promoção e rollback (§4.7, critério 10, ADR-0007) também foi aceita com os dados reais (ver o relatório de aceite).
 
 *(Entregável Etapa 3 do PDF: "Dashboard de monitoramento ou ambiente de rastreamento (ex.: MLflow / Datadog) evidenciando a saúde completa do pipeline, a estabilidade da infraestrutura e os alertas de degradação do modelo")*
 

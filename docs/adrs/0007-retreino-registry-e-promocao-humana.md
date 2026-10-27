@@ -12,7 +12,7 @@ Data       | Autor          | Descrição
 
 | Metadado | Detalhe |
 | :--- | :--- |
-| **Status** | **Aprovada** (2026-10-27) |
+| **Status** | **Implementada** (2026-10-27) |
 | **Decisores** | Eduardo Batista |
 | **Tags** | `[mlops]`, `[model-registry]`, `[retraining]`, `[governance]` |
 | **Impacto Sistêmico** | Alto (`src/monitoring/retrain.py`, `promote.py`, `promotion.py`, `registry.py`; `models/champion/`; `dvc.yaml`) |
