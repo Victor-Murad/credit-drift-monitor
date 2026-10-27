@@ -28,6 +28,9 @@ def _motivo_para_pular() -> str | None:
         return "aceite real não roda em CI"
     if not REAL_DB.is_file():
         return f"sem mlflow.db real em {REAL_DB} (rode `make pipeline`)"
+    if REAL_DB.stat().st_size == 0:
+        # O cliente criaria o esquema num arquivo vazio; este teste só lê.
+        return f"mlflow.db vazio em {REAL_DB} (rode `make pipeline`)"
     if not config.RAW_FILE.is_file():
         return f"sem o dataset do Kaggle em {config.RAW_FILE}"
     return None
@@ -42,14 +45,24 @@ def client() -> MlflowClient:
     return MlflowClient(tracking_uri=REAL_URI, registry_uri=REAL_URI)
 
 
+def pipeline_completo_ou_pular(client: MlflowClient) -> checks.PipelineRuns:
+    """O pipeline completo mais recente; sem nenhum (ex.: só `make data`), PULA.
+
+    Pular não esconde divergência: havendo pipeline completo, toda asserção que
+    divergir é falha dura.
+    """
+    encontrado = checks.latest_pipeline(client, config.MLFLOW_EXPERIMENT)
+    if encontrado is None:
+        pytest.skip(
+            f"sem pipeline completo (nenhum pipeline_run_id com {checks.PIPELINE_STAGES} "
+            f"no experimento {config.MLFLOW_EXPERIMENT}); rode `make pipeline`"
+        )
+    return encontrado
+
+
 @pytest.fixture(scope="module")
 def pipeline(client) -> checks.PipelineRuns:
-    encontrado = checks.latest_pipeline(client, config.MLFLOW_EXPERIMENT)
-    assert encontrado is not None, (
-        f"Nenhum pipeline_run_id com os estágios {checks.PIPELINE_STAGES} no "
-        f"experimento {config.MLFLOW_EXPERIMENT}: rode `make pipeline`."
-    )
-    return encontrado
+    return pipeline_completo_ou_pular(client)
 
 
 def test_pipeline_rodou_todos_os_estagios_com_sucesso(pipeline):

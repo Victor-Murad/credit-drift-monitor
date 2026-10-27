@@ -21,6 +21,7 @@ from src.monitoring.alerts import ACTIONS, AlertDecision, AlertLevel
 from src.monitoring.tracking import BatchRecord, tracked_stage
 from tests.conftest import cliente_mlflow
 from tests.integration import acceptance_checks as checks
+from tests.integration import test_acceptance_real as aceite_real
 
 T0, T1, T2 = checks.EXPECTED_DRIFT_LEVELS
 NIVEIS_ESPERADOS = {
@@ -208,3 +209,45 @@ def test_bloqueio_sem_intentional_demo_e_apontado(client, log_file):
         "contract_demo: run BLOQUEADO sem intentional_demo=true",
         "contract_demo: run de estágio sem a tag intentional_demo=true",
     ]
+
+
+# Decisões de `test_acceptance_real.py`: sem pipeline completo ele PULA (não quebra
+# a suíte); com pipeline completo e um nível divergente ele FALHA.
+
+
+def test_aceite_real_pula_sem_pipeline_completo(client, log_file):
+    _pipeline(log_file, "so-data", estagios=("prepare",))
+    with pytest.raises(pytest.skip.Exception, match="sem pipeline completo"):
+        aceite_real.pipeline_completo_ou_pular(client)
+
+
+def test_aceite_real_falha_com_pipeline_completo_e_t2_errado(client, log_file):
+    _pipeline(log_file, "pipe", niveis={**NIVEIS_ESPERADOS, T2: AlertLevel.ATENCAO})
+    pipeline = aceite_real.pipeline_completo_ou_pular(client)
+    assert pipeline.pipeline_run_id == "pipe"
+    with pytest.raises(AssertionError, match=T2):
+        aceite_real.test_t0_t1_t2_com_os_niveis_esperados(pipeline)
+
+
+@pytest.fixture
+def ambiente_real(tmp_path, monkeypatch) -> Path:
+    """`mlflow.db` e CSV "reais" redirecionados para `tmp_path`, fora do CI."""
+    monkeypatch.delenv("CI", raising=False)
+    csv = tmp_path / "application_train.csv"
+    csv.write_text("SK_ID_CURR\n1\n", encoding="utf-8")
+    monkeypatch.setattr(config, "RAW_FILE", csv)
+    banco = tmp_path / "mlflow.db"
+    monkeypatch.setattr(aceite_real, "REAL_DB", banco)
+    return banco
+
+
+def test_aceite_real_pula_com_mlflow_db_vazio(ambiente_real):
+    ambiente_real.write_bytes(b"")
+    motivo = aceite_real._motivo_para_pular()
+    assert motivo is not None
+    assert "vazio" in motivo
+
+
+def test_aceite_real_roda_com_mlflow_db_e_csv(ambiente_real):
+    ambiente_real.write_bytes(b"SQLite format 3\x00")
+    assert aceite_real._motivo_para_pular() is None
