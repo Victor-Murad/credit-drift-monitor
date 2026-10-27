@@ -6,9 +6,10 @@ import numpy as np
 import pytest
 
 from src.models.features import add_ratio_features, model_input
-from src.models.metrics import evaluate, ks_statistic
+from src.models.integrity import file_sha256, verify_model_integrity
+from src.models.metrics import evaluate, ks_statistic, ks_threshold
 from src.models.predict import score_batch
-from src.models.train import train_models
+from src.models.train import fit_model, save_bundle, split_reference, train_models
 from src.validation.gate import DataContractViolation
 from tests.conftest import make_valid_df
 
@@ -55,6 +56,58 @@ def test_train_grava_score_reference(trained):
     reference = metadata["score_reference"]
     assert sum(reference["shares"]) == pytest.approx(1)
     assert len(reference["shares"]) == len(reference["edges"]) + 1
+
+
+def test_metadata_mantem_chaves_na_ordem(trained):
+    """Caracterização: os helpers extraídos para o retreino não mudam o metadata."""
+    bundle, metadata = trained
+    assert list(bundle) == [
+        "pipeline",
+        "threshold",
+        "model_version",
+        "input_columns",
+        "contract_version",
+        "seed",
+    ]
+    assert list(metadata) == [
+        "model_version",
+        "official_model",
+        "trained_at",
+        "seed",
+        "contract_version",
+        "decision_rule",
+        "splits",
+        "features",
+        "xgboost_params",
+        "models",
+        "raw_feature_importance",
+        "score_reference",
+    ]
+    assert list(metadata["models"]["xgboost"]) == [
+        "threshold",
+        "test_metrics",
+        "train_seconds",
+    ]
+
+
+def test_fit_model_escolhe_threshold_na_validacao():
+    reference = make_valid_df(n=1500, seed=3)
+    treino, validacao, _ = split_reference(reference)
+
+    pipe, threshold = fit_model("xgboost", treino, validacao, xgb_params=FAST_XGB)
+
+    score_val = pipe.predict_proba(model_input(validacao))[:, 1]
+    assert threshold == ks_threshold(validacao["target"].to_numpy(), score_val)
+
+
+def test_save_bundle_grava_sha256_no_metadata(tmp_path, trained):
+    bundle, metadata = trained
+    modelo, meta = tmp_path / "m.joblib", tmp_path / "m.json"
+
+    gravado = save_bundle(bundle, dict(metadata), modelo, meta, artifact_file="x/m")
+
+    assert gravado["artifact"] == {"file": "x/m", "sha256": file_sha256(modelo)}
+    verify_model_integrity(modelo, meta)
 
 
 def test_training_is_reproducible(trained):

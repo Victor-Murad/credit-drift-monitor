@@ -20,6 +20,7 @@ import platform
 import time
 from datetime import UTC, datetime
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any
 
 import joblib
@@ -168,6 +169,80 @@ def split_reference(
     return train, val, test
 
 
+def fit_model(
+    name: str,
+    train: pd.DataFrame,
+    val: pd.DataFrame,
+    seed: int = SEED,
+    xgb_params: dict | None = None,
+) -> tuple[Pipeline, float]:
+    """Treina o pipeline `name` e escolhe o threshold (KS maximo) na VALIDACAO.
+
+    Compartilhado com o retreino do challenger (`src.monitoring.retrain`): mesmo
+    pipeline, mesmos hiperparametros e mesma regra de threshold. O threshold volta
+    sem arredondar (as metricas de teste usam o valor exato).
+    """
+    pipe = build_pipeline(name, seed, xgb_params)
+    pipe.fit(model_input(train), train[TARGET_COLUMN].to_numpy())
+    threshold = ks_threshold(
+        val[TARGET_COLUMN].to_numpy(), pipe.predict_proba(model_input(val))[:, 1]
+    )
+    return pipe, threshold
+
+
+def make_bundle(
+    pipeline: Pipeline, threshold: float, model_version: str, seed: int = SEED
+) -> dict:
+    """Bundle servido (`joblib`): pipeline, threshold arredondado e versoes."""
+    return {
+        "pipeline": pipeline,
+        "threshold": round(threshold, 6),
+        "model_version": model_version,
+        "input_columns": MODEL_INPUT_COLUMNS,
+        "contract_version": CONTRACT_VERSION,
+        "seed": seed,
+    }
+
+
+def model_metadata(
+    *,
+    model_version: str,
+    seed: int,
+    splits: dict[str, int],
+    xgb_params: dict | None,
+    models: dict[str, dict],
+    score_reference: dict,
+    raw_feature_importance: list[dict] | None = None,
+) -> dict:
+    """Metadata do modelo oficial (xgboost), comum ao baseline e ao challenger.
+
+    `score_reference` (scores do modelo oficial no teste da referencia) e a
+    referencia do PSI do score em producao. A importancia por permutacao so entra
+    quando calculada (o baseline a calcula; o retreino nao).
+    """
+    metadata: dict[str, Any] = {
+        "model_version": model_version,
+        "official_model": "xgboost",
+        "trained_at": datetime.now(tz=UTC).isoformat(),
+        "seed": seed,
+        "contract_version": CONTRACT_VERSION,
+        "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
+        "splits": splits,
+        "features": {
+            "categorical": CATEGORICAL_FEATURES,
+            "numeric": NUMERIC_FEATURES,
+            "derived_in_pipeline": RATIO_FEATURES,
+            "excluded_audit_only": ["gender"],
+        },
+        "xgboost_params": {**XGB_PARAMS, **(xgb_params or {})},
+        "models": models,
+    }
+    if raw_feature_importance is not None:
+        metadata["raw_feature_importance"] = raw_feature_importance
+    metadata["score_reference"] = score_reference
+    return metadata
+
+
 def train_models(
     reference: pd.DataFrame,
     seed: int = SEED,
@@ -179,16 +254,14 @@ def train_models(
     Retorna (bundle do modelo oficial, metadados). Nao grava nada em disco.
     """
     train, val, test = split_reference(reference, seed)
-    y_train, y_val, y_test = (d[TARGET_COLUMN].to_numpy() for d in (train, val, test))
+    y_test = test[TARGET_COLUMN].to_numpy()
 
     results: dict[str, dict] = {}
     pipelines: dict[str, Pipeline] = {}
     test_scores: dict[str, np.ndarray] = {}
     for name in ("xgboost", "logistic_regression"):
         started = time.perf_counter()
-        pipe = build_pipeline(name, seed, xgb_params)
-        pipe.fit(model_input(train), y_train)
-        threshold = ks_threshold(y_val, pipe.predict_proba(model_input(val))[:, 1])
+        pipe, threshold = fit_model(name, train, val, seed, xgb_params)
         test_score = pipe.predict_proba(model_input(test))[:, 1]
         results[name] = {
             "threshold": round(threshold, 6),
@@ -212,42 +285,26 @@ def train_models(
         official, model_input(sample), sample[TARGET_COLUMN].to_numpy(), seed
     )
 
-    bundle = {
-        "pipeline": official,
-        "threshold": results["xgboost"]["threshold"],
-        "model_version": MODEL_VERSION,
-        "input_columns": MODEL_INPUT_COLUMNS,
-        "contract_version": CONTRACT_VERSION,
-        "seed": seed,
-    }
-    metadata = {
-        "model_version": MODEL_VERSION,
-        "official_model": "xgboost",
-        "trained_at": datetime.now(tz=UTC).isoformat(),
-        "seed": seed,
-        "contract_version": CONTRACT_VERSION,
-        "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
-        "splits": {
+    bundle = make_bundle(official, results["xgboost"]["threshold"], MODEL_VERSION, seed)
+    metadata = model_metadata(
+        model_version=MODEL_VERSION,
+        seed=seed,
+        splits={
             "train": int(len(train)),
             "validation": int(len(val)),
             "test": int(len(test)),
         },
-        "features": {
-            "categorical": CATEGORICAL_FEATURES,
-            "numeric": NUMERIC_FEATURES,
-            "derived_in_pipeline": RATIO_FEATURES,
-            "excluded_audit_only": ["gender"],
-        },
-        "xgboost_params": {**XGB_PARAMS, **(xgb_params or {})},
-        "models": results,
-        "raw_feature_importance": importance,
+        xgb_params=xgb_params,
+        models=results,
         # Referencia do PSI do score em producao: scores do modelo oficial no teste.
-        "score_reference": score_distribution(test_scores["xgboost"]),
-    }
+        score_reference=score_distribution(test_scores["xgboost"]),
+        raw_feature_importance=importance,
+    )
     return bundle, metadata
 
 
-def _environment() -> dict:
+def environment() -> dict:
+    """Versoes do Python e dos pacotes do modelo (vai para o metadata)."""
     packages = ["scikit-learn", "xgboost", "pandas", "numpy", "pandera", "joblib"]
     return {"python": platform.python_version(), **{p: version(p) for p in packages}}
 
@@ -286,6 +343,31 @@ Modelo oficial: **{metadata["official_model"]}**.
 """
 
 
+def save_bundle(
+    bundle: dict,
+    metadata: dict,
+    model_file: Path,
+    metadata_file: Path,
+    *,
+    artifact_file: str | None = None,
+) -> dict:
+    """Grava o bundle e o metadata com `artifact` = {file, sha256} do bundle gravado.
+
+    `artifact_file` e o nome registrado do arquivo (padrao: caminho relativo a
+    raiz). Altera e devolve o proprio `metadata`.
+    """
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(bundle, model_file)
+    metadata["artifact"] = {
+        "file": artifact_file or project_relative(model_file),
+        "sha256": file_sha256(model_file),
+    }
+    metadata_file.write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return metadata
+
+
 def main() -> tuple[dict, dict]:
     """Treina, grava os artefatos e devolve `(bundle, metadata)` (como gravados).
 
@@ -305,17 +387,9 @@ def main() -> tuple[dict, dict]:
         "reference_rows": int(len(reference)),
         "build_report": "reports/data_contract/reference_build_report.json",
     }
-    metadata["environment"] = _environment()
+    metadata["environment"] = environment()
 
-    MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(bundle, MODEL_FILE)
-    metadata["artifact"] = {
-        "file": project_relative(MODEL_FILE),
-        "sha256": file_sha256(MODEL_FILE),
-    }
-    MODEL_METADATA_FILE.write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    save_bundle(bundle, metadata, MODEL_FILE, MODEL_METADATA_FILE)
     MODEL_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (MODEL_REPORTS_DIR / "baseline_metrics.md").write_text(
         write_metrics_markdown(metadata), encoding="utf-8"
