@@ -73,7 +73,7 @@ O `contract-demo` também emite um run de lote filho por lote (o válido e o inv
 | Tag | `run_type` | `stage`, `batch`, `training`, `retrain`, `audit` |
 | Tag | `pipeline_run_id`, `stage`, `stage_status` (`SUCCESS`/`FAILED`) | nos runs de estágio |
 | Tag | `alert_level` | código ASCII, para filtros do `search_runs`: `OK`, `ATENCAO`, `CRITICO`, `BLOQUEADO` |
-| Tag | `alert_label`, `alert_reasons` | rótulo com acento (`ATENÇÃO`, `CRÍTICO`) e motivos separados por `;` (`drift:<coluna>`, `score_psi>=0.10`, `auc_drop>=0.05`, `contract_blocked`, `single_class`) |
+| Tag | `alert_label`, `alert_reasons` | rótulo com acento (`ATENÇÃO`, `CRÍTICO`) e motivos separados por `;` (`drift:<coluna>`, `score_psi>=0.10`, `auc_drop>=0.05`, `single_class`; no `BLOQUEADO`, as regras violadas do contrato, ex.: `R1`; `empty_batch`, `auc_undefined`, `score_psi_undefined` e `no_baseline_auc` estão na nota do piso `ATENCAO`, §4.2) |
 | Tag | `batch_name`, `batch_path`, `batch_sha256`, `model_version` | o `simulate` regera t1/t2, então o hash do lote identifica o que foi avaliado |
 | Tag | `performance_evaluated` (`true`/`false`), `intentional_demo`, `retrain_consumed` | |
 | Métricas | as da §4.3 | `rows_rejected` = linhas dos lotes `BLOQUEADO` (o gate é tudo ou nada; `n_failure_cases` conta ocorrências, não linhas) |

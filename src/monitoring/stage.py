@@ -582,7 +582,13 @@ def _bootstrap(versao: int, shas: dict[str, str]) -> None:
     Export falho levanta antes do alias: nenhum champion aponta para um
     `models/champion/` ausente, e o `train` seguinte tenta de novo.
     """
-    if get_alias_version(CHAMPION_ALIAS) is not None:
+    existente = get_alias_version(CHAMPION_ALIAS)
+    if existente is not None:
+        # `models/champion/` é estado local ignorado pelo git: se sumiu, reexporta
+        # a versão do alias (o export confere o sha256 da tag).
+        if not config.CHAMPION_FILE.exists():
+            export_champion(int(existente.version))
+            log_event(logger, "champion_reexport", version=int(existente.version))
         return
     export_champion(versao)
     if bootstrap_champion(versao):

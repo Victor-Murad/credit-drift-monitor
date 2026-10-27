@@ -147,6 +147,20 @@ def test_train_repetido_nao_move_champion(tracking_env, caminhos, referencia):
     assert arquivo.read_bytes() == antes
 
 
+def test_train_reexporta_champion_quando_models_champion_sumiu(
+    tracking_env, caminhos, referencia
+):
+    assert stage.main(["train"]) == 0
+    arquivo = caminhos.champion / "baseline_model.joblib"
+    antes = arquivo.read_bytes()
+    arquivo.unlink()
+
+    assert stage.main(["train"]) == 0
+
+    assert get_alias_version("champion").version == 1
+    assert arquivo.read_bytes() == antes
+
+
 def _quebrar_export(monkeypatch, como: str) -> None:
     if como == "hash":
         # Hash do bundle baixado diverge da tag `model_sha256`.

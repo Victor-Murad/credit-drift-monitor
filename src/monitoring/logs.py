@@ -19,7 +19,9 @@ def _arquivos_de_log(log_file: Path) -> list[Path]:
     No `RotatingFileHandler`, quanto maior o sufixo, mais antigo o arquivo.
     """
     rotacionados = [
-        p for p in log_file.parent.glob(f"{log_file.name}.*") if p.suffix[1:].isdigit()
+        p
+        for p in log_file.parent.glob(f"{log_file.name}.*")
+        if p.suffix[1:].isdecimal()
     ]
     rotacionados.sort(key=lambda p: int(p.suffix[1:]), reverse=True)
     principal = [log_file] if log_file.exists() else []
