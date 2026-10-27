@@ -748,7 +748,11 @@ def _redact(valor: Any) -> Any:
     return valor
 
 
-def _resolve_operator(operator: str | None) -> str:
+def resolve_operator(operator: str | None) -> str:
+    """Operador da auditoria (padrão: `getpass.getuser()`); vazio ou indisponível é `ValueError`.
+
+    Público para que quem altera o Registry resolva o operador ANTES de alterar.
+    """
     if operator is None:
         try:
             operator = getpass.getuser()
@@ -812,7 +816,7 @@ def log_audit_run(
             "A auditoria exige um motivo não vazio (reason): quem promove ou reverte "
             "registra por quê."
         )
-    quem = _resolve_operator(operator)
+    quem = resolve_operator(operator)
     quando = _audit_time(clock)
     try:
         detalhes = json.dumps(
