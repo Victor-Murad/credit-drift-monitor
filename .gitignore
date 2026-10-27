@@ -35,6 +35,9 @@ data/samples/*
 .dvc/config.local
 .dvc/cache
 .dvc/tmp
+# Estado local do Registry (champion servido) e saídas por lote do comando monitor
+/models/champion/
+/reports/monitor/
 
 # Logs de execucao (as evidencias versionadas ficam em reports/)
 logs/
