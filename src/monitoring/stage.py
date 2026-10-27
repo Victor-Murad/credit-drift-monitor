@@ -32,11 +32,12 @@ from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import mlflow
 import pandas as pd
 import pyarrow.parquet as pq
-from mlflow.models import infer_signature
+from mlflow.models import ModelSignature, infer_signature
 
 from src import config
 from src.data import prepare
@@ -117,6 +118,17 @@ def _stage_file(path: Path, o_que: str) -> Path:
         raise StagePreconditionError(f"{exc}. {_REGENERATE_HINT}") from exc
 
 
+def infer_model_signature(pipeline: Any, exemplo: pd.DataFrame) -> ModelSignature:
+    """*Signature* do modelo logado: entrada do contrato -> `predict_proba`."""
+    with warnings.catch_warnings():
+        # Colunas inteiras do contrato são `nullable=False`: o aviso do MLflow sobre
+        # inteiros com valores ausentes não se aplica.
+        warnings.filterwarnings(
+            "ignore", message=_INT_COLUMNS_HINT, category=UserWarning
+        )
+        return infer_signature(exemplo, pipeline.predict_proba(exemplo))
+
+
 def run_train(run: StageRun) -> None:
     """Treina o baseline e, com o rastreamento ligado, registra e faz o bootstrap."""
     bundle, metadata = train.main()
@@ -131,13 +143,7 @@ def run_train(run: StageRun) -> None:
         train.REFERENCE_FILE, columns=config.MODEL_INPUT_COLUMNS
     ).head(INPUT_EXAMPLE_ROWS)
     pipeline = bundle["pipeline"]
-    with warnings.catch_warnings():
-        # Colunas inteiras do contrato são `nullable=False`: o aviso do MLflow sobre
-        # inteiros com valores ausentes não se aplica.
-        warnings.filterwarnings(
-            "ignore", message=_INT_COLUMNS_HINT, category=UserWarning
-        )
-        assinatura = infer_signature(exemplo, pipeline.predict_proba(exemplo))
+    assinatura = infer_model_signature(pipeline, exemplo)
     shas = {
         "reference_sha256": metadata["data_lineage"]["reference_sha256"],
         "model_sha256": metadata["artifact"]["sha256"],

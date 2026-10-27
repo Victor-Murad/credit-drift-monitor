@@ -278,8 +278,12 @@ def run_monitor(
 # MARK: CLI
 
 
-class _Parser(argparse.ArgumentParser):
-    """Erro de uso sai com 1 (operacional): o 2 do argparse é o código de `CRITICO`."""
+class CliParser(argparse.ArgumentParser):
+    """Erro de uso sai com 1 (operacional): o 2 do argparse é o código de `CRITICO`.
+
+    Reaproveitado pelos outros comandos de `src.monitoring` (ex.: `retrain`), em que o
+    2 também tem outro sentido.
+    """
 
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
@@ -299,7 +303,7 @@ def _auc_arg(texto: str) -> float:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = _Parser(
+    parser = CliParser(
         prog="python -m src.monitoring.monitor",
         description=(
             "Avalia um lote de produção (contrato, pontuação, drift, PSI do score e "
