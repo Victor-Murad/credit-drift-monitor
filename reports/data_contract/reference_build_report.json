@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-10-25T16:52:25.387282+00:00",
+  "generated_at": "2026-10-27T10:38:11.097601+00:00",
   "seed": 42,
   "contract_version": "1.0.0",
   "source": {
     "dataset": "Home Credit Default Risk (Kaggle) - application_train.csv",
-    "file": "data/raw/application_train.csv",
+    "file": "/Users/eduardobatista/Code/credit-drift-monitor/.claude/worktrees/etapa3-mitigacoes/data/raw/application_train.csv",
     "sha256": "52e96b895b1112e1c853f670e58372719c8441c5ed1c57ac2f7fad559d784f5f",
     "n_columns_raw_used": 21
   },

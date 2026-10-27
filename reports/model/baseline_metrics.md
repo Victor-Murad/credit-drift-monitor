@@ -1,6 +1,6 @@
 # Metricas do modelo baseline (baseline-v1)
 
-Gerado automaticamente por `src/models/train.py` em 2026-10-25T16:52:30.447030+00:00.
+Gerado automaticamente por `src/models/train.py` em 2026-10-27T10:38:18.393299+00:00.
 Conjunto de teste: 43,049 registros do Dataset de Referencia
 (taxa de default base: 8.07%). Threshold = ponto de KS maximo na validacao.
 

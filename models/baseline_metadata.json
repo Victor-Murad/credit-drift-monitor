@@ -1,7 +1,7 @@
 {
   "model_version": "baseline-v1",
   "official_model": "xgboost",
-  "trained_at": "2026-10-25T16:52:30.447030+00:00",
+  "trained_at": "2026-10-27T10:38:18.393299+00:00",
   "seed": 42,
   "contract_version": "1.0.0",
   "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
@@ -71,7 +71,7 @@
         "default_rate_approved": 0.0388,
         "default_rate_base": 0.0807
       },
-      "train_seconds": 1.47
+      "train_seconds": 1.5
     },
     "logistic_regression": {
       "threshold": 0.085172,
@@ -88,7 +88,7 @@
         "default_rate_approved": 0.0431,
         "default_rate_base": 0.0807
       },
-      "train_seconds": 0.35
+      "train_seconds": 0.34
     }
   },
   "raw_feature_importance": [
@@ -183,6 +183,31 @@
       "auc_drop_std": 8e-05
     }
   ],
+  "score_reference": {
+    "edges": [
+      0.01736137829720974,
+      0.025349486619234085,
+      0.03335933685302736,
+      0.04223602861166,
+      0.05346861854195595,
+      0.0677087023854256,
+      0.08788709938526154,
+      0.11884682625532152,
+      0.17872519791126262
+    ],
+    "shares": [
+      0.10000232293433065,
+      0.10000232293433065,
+      0.10000232293433065,
+      0.10000232293433065,
+      0.09997909359102418,
+      0.10000232293433065,
+      0.10000232293433065,
+      0.10000232293433065,
+      0.10000232293433065,
+      0.10000232293433065
+    ]
+  },
   "data_lineage": {
     "reference_file": "data/reference/reference.parquet",
     "reference_sha256": "d83ed8a5a5557d3b8dac4b73f7f12294815527e5f393ea14b651845c4d3781db",

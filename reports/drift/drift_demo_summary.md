@@ -1,6 +1,6 @@
 # Etapa 2 — Demonstracao de Drift
 
-> Gerado em `2026-10-25T16:53:05.887756+00:00` · seed=42 · modelo `baseline-v1` · amostra Evidently=15000.
+> Gerado em `2026-10-27T10:38:26.727947+00:00` · seed=42 · modelo `baseline-v1` · amostra Evidently=15000.
 
 ## Gate do contrato
 

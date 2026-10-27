@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T16:53:05.887756+00:00",
+  "generated_at": "2026-10-27T10:38:26.727947+00:00",
   "seed": 42,
   "evidently_sample_size": 15000,
   "min_psi": 0.1,
@@ -142,12 +142,13 @@
           "psi_level": "stable"
         }
       ],
-      "concept_drift": false,
-      "duration_ms": 440.23,
+      "label_shift": false,
+      "duration_ms": 290.0,
       "report_paths": {
         "html": "reports/drift/production_t0_drift_report.html",
         "json": "reports/drift/production_t0_drift_report.json"
-      }
+      },
+      "concept_drift": false
     },
     "production_t1_data_drift": {
       "batch_name": "production_t1_data_drift",
@@ -230,12 +231,13 @@
           "psi_level": "stable"
         }
       ],
-      "concept_drift": false,
-      "duration_ms": 345.58,
+      "label_shift": false,
+      "duration_ms": 265.44,
       "report_paths": {
         "html": "reports/drift/production_t1_data_drift_drift_report.html",
         "json": "reports/drift/production_t1_data_drift_drift_report.json"
-      }
+      },
+      "concept_drift": false
     },
     "production_t2_concept_drift": {
       "batch_name": "production_t2_concept_drift",
@@ -318,12 +320,13 @@
           "psi_level": "stable"
         }
       ],
-      "concept_drift": false,
-      "duration_ms": 308.27,
+      "label_shift": false,
+      "duration_ms": 268.73,
       "report_paths": {
         "html": "reports/drift/production_t2_concept_drift_drift_report.html",
         "json": "reports/drift/production_t2_concept_drift_drift_report.json"
-      }
+      },
+      "concept_drift": false
     }
   },
   "performance": {

@@ -79,9 +79,10 @@
       "psi_level": "stable"
     }
   ],
-  "concept_drift": false,
-  "duration_ms": 345.58,
+  "label_shift": false,
+  "duration_ms": 265.44,
   "report_paths": {},
+  "concept_drift": false,
   "evidently_metrics": [
     {
       "id": "ee872157bf6935d2539ddf961e05af36",
