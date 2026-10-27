@@ -1,4 +1,4 @@
-.PHONY: help setup download-data pipeline data train contract-demo demo-drift drift-demo monitor tracking-ui repro validate predict etapa1 simulate-drift detect-drift etapa2 test test-cov lint format clean
+.PHONY: help setup download-data pipeline data train contract-demo demo-drift drift-demo monitor retrain promote rollback tracking-ui repro validate predict etapa1 simulate-drift detect-drift etapa2 test test-cov lint format clean
 
 # uv e obrigatorio (mesmo padrao da Fase 3): garante que todo o grupo rode
 # no mesmo ambiente, travado pelo uv.lock.
@@ -13,6 +13,15 @@ STAGE := $(PYTHON) -m src.monitoring.stage
 # 5001: a 5000 colide com o AirPlay no macOS.
 MLFLOW_UI_PORT := 5001
 
+# Receita que roda o comando $(2) e repassa o codigo de saida dele. O make so sai
+# com 0 ou 2: o codigo exato (0/2/3/1) vai na mensagem de erro do make ("Error 3")
+# e na linha "$(1): codigo de saida N (...)". A legenda dos codigos vem de
+# CODIGOS, definida no alvo (uma virgula num argumento do $(call) o partiria).
+com_codigo = @$(2); \
+	codigo=$$?; \
+	if [ $$codigo -ne 0 ]; then echo "$(1): codigo de saida $$codigo ($(CODIGOS))" >&2; fi; \
+	exit $$codigo
+
 help:
 	@echo "credit-drift-monitor - Tech Challenge Fase 4"
 	@echo "--------------------------------------------"
@@ -22,6 +31,12 @@ help:
 	@echo "                      com um unico PIPELINE_RUN_ID (sempre executa todos os estagios)"
 	@echo "make monitor BATCH=<arquivo> [BASELINE_AUC=<auc>] - Avalia um lote e registra o alerta"
 	@echo "                      (codigo do monitor: 0 OK/ATENCAO, 2 CRITICO, 3 BLOQUEADO, 1 erro)"
+	@echo "make retrain [ARGS='--alert-run <id>'] - Treina o challenger a partir de um alerta CRITICO"
+	@echo "                      e o registra no Model Registry; nunca move o champion"
+	@echo "                      (0 registrado, 2 recusa sem alerta, 3 contrato barrou, 1 erro)"
+	@echo "make promote [ARGS='--override --reason <motivo>'] - Promove o challenger a champion"
+	@echo "                      (comando humano: reavalia a regra; 0 promovido, 2 inelegivel, 1 erro)"
+	@echo "make rollback [ARGS='--reason <motivo>'] - Devolve o champion a versao previous (0 feito, 1 erro)"
 	@echo "make tracking-ui    - Abre o MLflow UI em http://127.0.0.1:$(MLFLOW_UI_PORT) (banco local)"
 	@echo "make repro          - dvc repro: so os estagios com mudanca (sem PIPELINE_RUN_ID comum)"
 	@echo "make data           - Estagio prepare: Dataset de Referencia + lote de Producao t0"
@@ -69,14 +84,25 @@ demo-drift:
 
 drift-demo: demo-drift
 
-# O make so sai com 0 ou 2: o codigo exato do monitor (0/2/3/1) vai na mensagem
-# de erro do make ("Error 3") e na linha impressa abaixo.
+monitor: CODIGOS = 2 CRITICO, 3 BLOQUEADO, 1 erro operacional
 monitor:
 	$(if $(strip $(BATCH)),,$(error Informe o lote: make monitor BATCH=<arquivo .parquet ou .csv>))
-	@$(PYTHON) -m src.monitoring.monitor --batch "$(BATCH)" $(if $(BASELINE_AUC),--baseline-auc $(BASELINE_AUC),); \
-	codigo=$$?; \
-	if [ $$codigo -ne 0 ]; then echo "monitor: codigo de saida $$codigo (2 CRITICO, 3 BLOQUEADO, 1 erro operacional)" >&2; fi; \
-	exit $$codigo
+	$(call com_codigo,monitor,$(PYTHON) -m src.monitoring.monitor --batch "$(BATCH)" $(if $(BASELINE_AUC),--baseline-auc $(BASELINE_AUC),))
+
+# Extensao da spec, §4.7: retreino, promocao e rollback. ARGS vai sem aspas para o
+# shell, entao aspas dentro dele valem: ARGS="--override --reason 'motivo'".
+# So o retrain e automatizavel; promote e rollback sao decisoes humanas.
+retrain: CODIGOS = 2 recusa sem alerta CRITICO, 3 contrato barrou, 1 erro operacional
+retrain:
+	$(call com_codigo,retrain,$(PYTHON) -m src.monitoring.retrain $(ARGS))
+
+promote: CODIGOS = 2 recusa: challenger inelegivel, 1 erro operacional
+promote:
+	$(call com_codigo,promote,$(PYTHON) -m src.monitoring.promote $(ARGS))
+
+rollback: CODIGOS = 1 erro operacional, por exemplo sem previous
+rollback:
+	$(call com_codigo,rollback,$(PYTHON) -m src.monitoring.promote rollback $(ARGS))
 
 # URI absoluto do banco local derivado de src.config (nunca escrito aqui).
 tracking-ui:

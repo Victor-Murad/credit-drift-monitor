@@ -6,6 +6,7 @@ nada do pipeline real roda e nenhum `mlflow.db` é criado.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -24,11 +25,20 @@ pytestmark = pytest.mark.skipif(
 )
 
 STUB = """\
-import os, sys
+import json, os, sys
 if "--batch" in sys.argv:
     sys.exit(int(sys.argv[sys.argv.index("--batch") + 1]))
+if "--exit" in sys.argv:
+    print(json.dumps(sys.argv[1:]))
+    sys.exit(int(sys.argv[sys.argv.index("--exit") + 1]))
 print(f"{sys.argv[1]} {os.environ.get('PIPELINE_RUN_ID')}")
 """
+# Alvos da extensão §4.7 (retreino e promoção) e o módulo que cada um chama.
+CICLO = {
+    "retrain": ["-m", "src.monitoring.retrain"],
+    "promote": ["-m", "src.monitoring.promote"],
+    "rollback": ["-m", "src.monitoring.promote", "rollback"],
+}
 
 
 @pytest.fixture
@@ -127,3 +137,56 @@ def test_tracking_ui_na_porta_5001_com_uri_do_config():
 
 def test_repro_chama_o_dvc():
     assert _make("-n", "repro").stdout.strip().endswith("uv run dvc repro")
+
+
+@pytest.mark.parametrize("alvo", sorted(CICLO))
+def test_ciclo_sem_args_chama_o_modulo(alvo):
+    seco = _make("-n", alvo).stdout
+    assert f"uv run python {' '.join(CICLO[alvo])};" in seco.replace(" ;", ";")
+
+
+@pytest.mark.parametrize("alvo", sorted(CICLO))
+def test_ciclo_repassa_args_com_aspas(stub, alvo):
+    resultado = _make(
+        alvo, f"PYTHON={stub}", "ARGS=--reason 'motivo com espaços' --exit 0"
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    recebido = json.loads(resultado.stdout.splitlines()[-1])
+    assert recebido == [
+        *CICLO[alvo],
+        "--reason",
+        "motivo com espaços",
+        "--exit",
+        "0",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("alvo", "codigo"),
+    [
+        ("retrain", 2),
+        ("retrain", 3),
+        ("retrain", 1),
+        ("promote", 2),
+        ("promote", 1),
+        ("rollback", 1),
+    ],
+)
+def test_ciclo_mostra_o_codigo_de_saida(stub, alvo, codigo):
+    resultado = _make(alvo, f"PYTHON={stub}", f"ARGS=--exit {codigo}")
+    # Como no monitor: o make sai com 2 em qualquer falha; o código vem no texto.
+    assert resultado.returncode == 2
+    assert f"Error {codigo}" in resultado.stderr
+    assert f"{alvo}: codigo de saida {codigo}" in resultado.stderr
+
+
+def test_help_e_phony_listam_o_ciclo():
+    ajuda = _make("help").stdout
+    phony = next(
+        linha
+        for linha in (ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+        if linha.startswith(".PHONY:")
+    ).split()
+    for alvo in CICLO:
+        assert f"make {alvo} [ARGS=" in ajuda
+        assert alvo in phony
