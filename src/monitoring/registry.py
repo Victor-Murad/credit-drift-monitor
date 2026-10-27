@@ -585,14 +585,15 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _redact_text(texto: str) -> str:
+def redact_text(texto: str) -> str:
+    """Texto livre (motivo, operador) com toda URI redigida por `redact_uri`."""
     return _URI_IN_TEXT.sub(lambda m: tracking.redact_uri(m.group(0)), texto)
 
 
 def _redact(valor: Any) -> Any:
     """Cópia de `details` sem segredos e sem float não finito (JSON válido)."""
     if isinstance(valor, str):
-        return _redact_text(valor)
+        return redact_text(valor)
     if isinstance(valor, float) and not math.isfinite(valor):
         return str(valor)
     if isinstance(valor, dict):
@@ -677,8 +678,8 @@ def log_audit_run(
         "action": action,
         "model_name": config.REGISTERED_MODEL_NAME,
         "version": str(int(version)),
-        "reason": _redact_text(motivo),
-        "operator": _redact_text(quem),
+        "reason": redact_text(motivo),
+        "operator": redact_text(quem),
         "timestamp_utc": quando.isoformat(),
         "pipeline_run_id": RUN_ID,
         "details": detalhes,
