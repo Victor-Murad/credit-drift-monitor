@@ -48,3 +48,24 @@
 | ADR: telemetria e política de alerta | decidido em parte | Usuário escolheu **MLflow + DVC**; escopo e política de alerta seguem no brainstorming |
 
 Verificação local: 84 testes passando, cobertura 95,6%, `make lint` (ruff e 2 contratos do import-linter) limpo.
+
+## Atualização (2026-10-27): núcleo da Etapa 3
+
+| Item | Estado | Evidência |
+| :--- | :---: | :--- |
+| Renomear `concept_drift` → `label_shift` | feito | `54ab4a3` (alias legado no JSON até a Etapa 4) e emenda da ADR-0005 em `f2f1b1b`. Os relatórios de `reports/drift/` foram regenerados com `label_shift` em `9f7e4bd` |
+| ADR: telemetria e política de alerta | feito | ADR-0006 `Implementada` (2026-10-27). A política de alerta é a regra pura em `src/monitoring/alerts.py` (spec §4.2), com o piso de `ATENÇÃO` para anomalias documentado na spec e no README |
+| Correlação log ↔ execução | feito | tag `pipeline_run_id` em cada run de estágio e trecho do `logs/pipeline.jsonl` do `run_id` anexado. Conferido pelo aceite real |
+| Contrato de camadas | ampliado | `monitoring → drift → models → validation` e um contrato `forbidden` para `mlflow`/`dvc` fora de `src/monitoring/`. Os 3 contratos estão KEPT |
+| `drift/demo.py` e `models/train.py` misturando responsabilidades | não revisto aqui | a Etapa 3 só adicionou ganchos (`on_batch`, retorno de `train.main`). A extração da renderização não foi avaliada nesta atualização |
+| Workflow de CI | feito, **ainda não testado no GitHub** | sem mudança; o aceite real pula em CI (`CI` definido) |
+
+Execução real com o dataset do Kaggle, `pipeline_run_id` `20261027T103457Z`, no MLflow local:
+- t0 `OK`: AUC 0,7533;
+- t1 `ATENCAO`: `drift:annuity_amount`, `drift:ext_source_3`, `drift:income_total` e `score_psi>=0.10` (0,143); AUC 0,7224, queda de 0,031;
+- t2 `CRITICO`: `auc_drop>=0.05`, queda de 0,181; AUC 0,5720;
+- lote inválido `BLOQUEADO`, com `intentional_demo=true` e `alerts_failure_count`=1.
+
+`tests/integration/test_acceptance_real.py` deu 5 passed, 0 skipped. `make test-cov` deu 287 passed, com 97,17% de cobertura. O primeiro `dvc.lock` saiu do `make repro`, e a segunda rodada pulou os 4 estágios.
+
+Pendente (Fase B, spec §4.7): retreino, challenger, promoção, rollback e ADR-0007.

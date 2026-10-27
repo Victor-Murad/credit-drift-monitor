@@ -138,41 +138,67 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 
 > Pré-requisito: Etapa 2 concluída (relatório de Drift disponível para ser exposto/monitorado).
 
+> **Evidência do núcleo (2026-10-27):** a execução real foi `make pipeline` com o `application_train.csv` real, `pipeline_run_id` `20261027T103457Z`, num MLflow local (`mlflow.db`, experimento `credit-drift-monitor`).
+>
+> Runs de estágio, todos `stage_status=SUCCESS`:
+> - `prepare`: `42d99743…`, 307.490 linhas;
+> - `train`: `3191bb92…`, 215.243 linhas; o run de treino `61f1a869…` deu ROC-AUC 0,7491 e virou a versão 1 de `credit-default-xgboost`, com o alias `champion`;
+> - `contract_demo`: `dfff94e6…`, com `alerts_failure_count`=1 e `rows_rejected`=508;
+> - `drift_demo`: `8852334f…`, com `alerts_drift_count`=2.
+>
+> Runs de lote:
+> - t0 `OK`: AUC 0,7533, `score_psi` 0,0003;
+> - t1 `ATENCAO`: 3 colunas com drift e `score_psi` 0,143, AUC 0,7224, queda de 0,031;
+> - t2 `CRITICO`: queda de AUC de 0,181, AUC 0,5720;
+> - lote inválido `BLOQUEADO`, com `intentional_demo=true`.
+>
+> O teste de aceite real (`tests/integration/test_acceptance_real.py`) deu **5 passed, 0 skipped**. `make lint` saiu limpo, com 3 contratos do import-linter KEPT. `make test-cov` deu 287 passed e 97,17% de cobertura. `make repro` gerou o `dvc.lock`, e a segunda rodada pulou os 4 estágios. Depois disso, `git status` não mostrou nada de `data/`, `mlflow.db` ou `mlartifacts/`.
+>
+> **Pendente (Fase B, §4.7 da spec):** retreino por alerta `CRÍTICO`, challenger no Registry, promoção, rollback e ADR-0007.
+
 ### 3.1 Decisão de arquitetura e ambiente adicional
 
-- [ ] Escolher o caminho de rastreamento/monitoramento (ambiguidade #5; o PDF diz "pode optar por" MLflow **ou** dashboard, sem proibir combinar):
+- [X] Escolher o caminho de rastreamento/monitoramento (ambiguidade #5; o PDF diz "pode optar por" MLflow **ou** dashboard, sem proibir combinar). **Escolha: Opção A, MLflow local com backend SQLite, mais DVC local** ([ADR-0006](adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md), `Implementada`):
   - **Opção A — MLflow:** rastrear ciclo de vida do modelo e experimentos, **ou**
   - **Opção B — Dashboard interativo:** exportar métricas de infraestrutura/pipeline (Datadog, solução Cloud nativa ou alternativa Open-Source)
-- [ ] Adicionar a biblioteca/ferramenta escolhida às dependências do projeto
-- [ ] Adicionar **Prometheus-client** apenas se houver integração real com um projeto de Fase 3 (opcional — ambiguidade #6)
+- [X] Adicionar a biblioteca/ferramenta escolhida às dependências do projeto: `mlflow` e `dvc` no `pyproject.toml` e no `uv.lock`. Um contrato do import-linter só permite importar `mlflow` e `dvc` em `src/monitoring/`.
+- [ ] Adicionar **Prometheus-client** apenas se houver integração real com um projeto de Fase 3 (opcional — ambiguidade #6). **Não se aplica:** não há projeto de Fase 3 a integrar (não-objetivo da spec).
 
 ### 3.2 Centralização de logs e métricas
 
-- [ ] Centralizar logs de execução do pipeline (sucesso/falha na ingestão e transformação de dados)
-- [ ] Integrar, no mesmo local, os resultados dos testes de Drift gerados na Etapa 2.3
+- [X] Centralizar logs de execução do pipeline (sucesso/falha na ingestão e transformação de dados). Cada run de estágio recebe como artefato o trecho do `logs/pipeline.jsonl` do seu `run_id`, ligado pela tag `pipeline_run_id`. O aceite real confere isso nos 4 runs de estágio de `20261027T103457Z`. O caminho de falha (`stage_status=FAILED`, `stage_success=0`) é coberto por testes com um MLflow temporário, não pela execução real, que não teve falha.
+- [X] Integrar, no mesmo local, os resultados dos testes de Drift gerados na Etapa 2.3. Os runs de lote filhos do `drift_demo` (t0 `9d89b104…`, t1 `0b1d84d8…`, t2 `f76a9172…`) trazem o nível, os motivos, o PSI por coluna, o `label_shift` e os relatórios HTML/JSON do Evidently e do contrato como artefatos.
 
 ### 3.3 Definição e documentação de métricas de saúde
 
-- [ ] Definir e documentar as **métricas de saúde operacionais**, no mínimo:
-  - status de execução das tarefas do pipeline
-  - latência
-  - volume de dados processados
-  - quantidade de alertas de falha ou drift
-  - métricas de saúde do **modelo** (ex.: ROC-AUC e queda de performance), exigidas pelo critério de Observabilidade ("métricas de saúde do modelo e alertas de drift")
-- [ ] Implementar a coleta/exposição dessas métricas na ferramenta escolhida (MLflow ou dashboard)
-- [ ] Gerar o dashboard de monitoramento (ou ambiente de rastreamento) final evidenciando: saúde do pipeline de dados, estabilidade da infraestrutura e alertas de degradação do modelo
+- [X] Definir e documentar as **métricas de saúde operacionais**, no mínimo (spec §4.3 e README, seção Etapa 3):
+  - status de execução das tarefas do pipeline: `stage_success` e a tag `stage_status`
+  - latência: `stage_duration_s`, mais o `duration_ms` dos eventos no log anexado
+  - volume de dados processados: `rows_processed` e `rows_rejected`
+  - quantidade de alertas de falha ou drift: `alerts_failure_count` e `alerts_drift_count`
+  - métricas de saúde do **modelo** (ex.: ROC-AUC e queda de performance), exigidas pelo critério de Observabilidade ("métricas de saúde do modelo e alertas de drift"): `roc_auc`, `auc_drop`, `approval_rate`, `default_rate_approved` e `score_psi`
+- [X] Implementar a coleta/exposição dessas métricas na ferramenta escolhida (MLflow ou dashboard). O aceite real (`test_cada_metrica_de_saude_aparece_em_algum_run`) confirmou cada uma das 12 métricas da §4.3 em pelo menos um run, mais `peak_memory_mb` para a estabilidade.
+- [X] Gerar o dashboard de monitoramento (ou ambiente de rastreamento) final evidenciando: saúde do pipeline de dados, estabilidade da infraestrutura e alertas de degradação do modelo. `make tracking-ui` subiu o `mlflow ui` em `http://127.0.0.1:5001`, que respondeu HTTP 200.
+  - Pela API do próprio servidor, a UI mostra o experimento `credit-drift-monitor`, os 5 runs de lote (`valid_batch`, `invalid_batch`, t0, t1, t2) com as tags `alert_level` e `alert_reasons`, e o modelo `credit-default-xgboost` com o alias `champion` na versão 1.
+  - A conferência visual no navegador fica com o usuário.
+  - Limitação assumida: "infraestrutura" é o processo local (`peak_memory_mb` e `stage_duration_s`), sem cluster.
 
 ### 3.4 Consolidação e versionamento de evidências
 
-- [ ] Consolidar no repositório todos os artefatos gerados até aqui: script de validação, modelo baseline, datasets (ou scripts de geração), relatório(s) de Drift em HTML, dashboard/ambiente de rastreamento
-- [ ] Garantir histórico de commits semântico e organizado cobrindo as Etapas 1 a 3
-- [ ] Se optou por MLflow: garantir que os experimentos/runs estejam registrados e acessíveis (ex.: `mlflow ui` funcional ou export dos resultados)
+- [X] Consolidar no repositório todos os artefatos gerados até aqui: script de validação, modelo baseline, datasets (ou scripts de geração), relatório(s) de Drift em HTML, dashboard/ambiente de rastreamento.
+  - `models/` e `reports/` foram regenerados pela execução real e versionados, com `label_shift` nos relatórios de drift.
+  - O `dvc.lock` está versionado (só hashes).
+  - O ambiente de rastreamento é reproduzível com `make pipeline` e `make tracking-ui`. O `mlflow.db` e o `mlartifacts/` ficam fora do git por decisão (ADR-0006: os artefatos derivam do dataset do Kaggle).
+- [X] Garantir histórico de commits semântico e organizado cobrindo as Etapas 1 a 3 (Conventional Commits em PT-BR, atômicos, na branch `etapa3-mitigacoes`).
+- [X] Se optou por MLflow: garantir que os experimentos/runs estejam registrados e acessíveis (ex.: `mlflow ui` funcional ou export dos resultados): `make tracking-ui`, como acima.
 
 ### ✅ Checklist de saída da Etapa 3
 
-- [ ] Ferramenta de rastreamento/monitoramento escolhida e em funcionamento (MLflow ou dashboard)
-- [ ] Logs de pipeline e resultados de Drift centralizados em um único local
-- [ ] Métricas de saúde documentadas e visíveis no dashboard/ambiente de rastreamento
+- [X] Ferramenta de rastreamento/monitoramento escolhida e em funcionamento (MLflow ou dashboard)
+- [X] Logs de pipeline e resultados de Drift centralizados em um único local
+- [X] Métricas de saúde documentadas e visíveis no dashboard/ambiente de rastreamento
+
+> O checklist de saída vale para o **núcleo** da Etapa 3 (§4.1 a §4.6 da spec). A extensão de retreino, Registry com challenger, promoção e rollback (§4.7, critérios 9 e 10, incluindo a ADR-0007) segue pendente para a Fase B, e o usuário valida o núcleo antes dela.
 
 *(Entregável Etapa 3 do PDF: "Dashboard de monitoramento ou ambiente de rastreamento (ex.: MLflow / Datadog) evidenciando a saúde completa do pipeline, a estabilidade da infraestrutura e os alertas de degradação do modelo")*
 
