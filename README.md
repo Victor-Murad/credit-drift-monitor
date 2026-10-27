@@ -129,6 +129,9 @@ uv run pytest
 | `make demo-drift` / `make drift-demo` / `make etapa2` | `uv run python -m src.monitoring.stage drift_demo` |
 | `make etapa1`                       | `make data train contract-demo`                                    |
 | `make monitor BATCH=arq.parquet`    | `uv run python -m src.monitoring.monitor --batch arq.parquet [--baseline-auc 0.75]` |
+| `make retrain [ARGS=...]`           | `uv run python -m src.monitoring.retrain [--alert-run <id>]`       |
+| `make promote [ARGS=...]`           | `uv run python -m src.monitoring.promote [--version N] [--override --reason "..."]` |
+| `make rollback [ARGS=...]`          | `uv run python -m src.monitoring.promote rollback [--reason "..."]` |
 | `make tracking-ui`                  | `uv run mlflow ui --backend-store-uri sqlite:///<caminho absoluto>/mlflow.db --port 5001` |
 | `make repro`                        | `uv run dvc repro`                                                 |
 | `make validate INPUT=arq.csv`       | `uv run python -m src.validation.validate --input arq.csv`         |
@@ -201,7 +204,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 > Foco: um lugar único para ver a saúde do pipeline, a estabilidade da execução e os alertas de degradação do modelo. Desenho em [`docs/ai/specs/2026-10-25-etapa3-observabilidade-design.md`](docs/ai/specs/2026-10-25-etapa3-observabilidade-design.md); decisão em [ADR-0006](docs/adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md).
 
-**Entregável: ambiente de rastreamento (MLflow) com a saúde do pipeline, a estabilidade da execução e os alertas de degradação do modelo.** A parte de retreino, promoção e rollback (§4.7 da spec) ainda não foi feita.
+**Entregável: ambiente de rastreamento (MLflow) com a saúde do pipeline, a estabilidade da execução e os alertas de degradação do modelo.** A extensão de retreino, promoção e rollback (§4.7 da spec, [ADR-0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md)) está implementada e coberta por testes com dados sintéticos. A demonstração dela com os dados reais ainda não foi executada.
 
 - **MLflow local:** o banco SQLite fica em `mlflow.db` e os artefatos em `mlartifacts/`, os dois na raiz do repositório e fora do git. O experimento se chama `credit-drift-monitor`. Não há servidor remoto.
 - **Runs:** cada estágio (`prepare`, `train`, `contract_demo`, `drift_demo`) gera um run de estágio com a tag `pipeline_run_id` e o trecho do `logs/pipeline.jsonl` daquele `run_id` anexado como artefato. Cada lote avaliado gera um run filho com nível, motivos, ação, métricas e os relatórios do Evidently e do contrato.
@@ -212,7 +215,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
   - alertas: `alerts_failure_count` e `alerts_drift_count`;
   - modelo: `roc_auc`, `auc_drop`, `approval_rate`, `default_rate_approved` e `score_psi`;
   - estabilidade: `peak_memory_mb` e `stage_duration_s`. "Infraestrutura" aqui é o processo local: não há cluster, e essa limitação é assumida.
-- **Model Registry:** o modelo `credit-default-xgboost` recebe o alias `champion` no primeiro `train`. O modelo servido fica em `models/champion/`, conferido pelo sha256 da versão `champion`. Um `train` repetido registra uma versão nova, mas não move o alias.
+- **Model Registry:** o modelo `credit-default-xgboost` recebe o alias `champion` no primeiro `train`. O modelo servido fica em `models/champion/`, conferido pelo sha256 da versão `champion`. Um `train` repetido registra uma versão nova, mas não move o alias. O retreino acrescenta o alias `challenger`, e a promoção dá o alias `previous` ao champion anterior (ver [Retreino, promoção e rollback](#retreino-promoção-e-rollback-extensão-47)).
 
 ### Nível de alerta por lote
 
@@ -247,12 +250,15 @@ make pipeline                  # os 4 estágios, sempre executados, com um únic
 make tracking-ui               # MLflow UI em http://127.0.0.1:5001 (a 5000 colide com o AirPlay no macOS)
 make monitor BATCH=data/production/production_t2_concept_drift.parquet [BASELINE_AUC=0.7533]
 make demo-drift                # só o estágio drift_demo (apelidos: drift-demo, etapa2)
+make retrain                   # treina o challenger a partir do alerta CRITICO (nunca promove)
+make promote                   # comando humano: promove o challenger, se elegível
+make rollback                  # comando humano: devolve o champion à versão previous
 make repro                     # dvc repro: roda só os estágios com mudança
 ```
 
 O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC (se o lote for rotulado), nível de alerta e registro no MLflow. A AUC de referência vem do run `production_t0` do mesmo modelo no MLflow, ou de `--baseline-auc`. Um lote rotulado sem nenhuma das duas falha fechado.
 
-> **Código de saída do monitor:** o próprio monitor sai com 0 (`OK`/`ATENÇÃO`), 2 (`CRÍTICO`), 3 (`BLOQUEADO`) ou 1 (erro operacional). O `make monitor` **não repassa** esse código: o GNU make sai com 2 em qualquer falha de receita. O código real aparece só no texto (`make: *** [monitor] Error 3` e a linha `monitor: codigo de saida 3 ...`). Para usar num script, chame o módulo direto:
+> **Código de saída do monitor:** o próprio monitor sai com 0 (`OK`/`ATENÇÃO`), 2 (`CRÍTICO`), 3 (`BLOQUEADO`) ou 1 (erro operacional). O `make monitor` **não repassa** esse código: o GNU make sai com 2 em qualquer falha de receita. O código real aparece só no texto (`make: *** [monitor] Error 3` e a linha `monitor: codigo de saida 3 ...`). O mesmo vale para `make retrain`, `make promote` e `make rollback`. Para usar num script, chame o módulo direto:
 >
 > ```bash
 > uv run python -m src.monitoring.monitor --batch data/production/production_t2_concept_drift.parquet
@@ -260,6 +266,46 @@ O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC 
 > ```
 
 > **Variáveis de ambiente:** `MLFLOW_TRACKING_URI` e `MLFLOW_ARTIFACT_ROOT` trocam o banco e o diretório de artefatos (o padrão é `mlflow.db` e `mlartifacts/` na raiz, com caminho absoluto). Se uma delas estiver exportada no shell, o pipeline grava em outro lugar. O teste de aceite real (`tests/integration/test_acceptance_real.py`) sempre lê o `mlflow.db` da raiz, então ele deixa de enxergar a execução ou enxerga uma antiga. Antes de rodar `make pipeline` e o aceite, confira que as duas não estão definidas. `MONITORING_TRACKING=off` desliga o rastreamento; sem ele, um MLflow indisponível derruba o estágio com mensagem clara.
+
+### Retreino, promoção e rollback (extensão §4.7)
+
+Decisão completa, com os limiares pré-registrados, na [ADR-0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md). Os três comandos exigem o rastreamento ligado: com `MONITORING_TRACKING=off` eles falham fechado, com código 1.
+
+**Fluxo:**
+
+1. **Alerta.** `make pipeline` (ou `make demo-drift`, ou `make monitor BATCH=<lote rotulado>`) grava um run de lote `CRITICO` quando a queda de AUC passa de 0,05. Isso é automático.
+2. **Retreino.** `make retrain` treina o challenger com o treino da referência mais metade estratificada do lote `CRITICO`. A outra metade é o holdout de comparação e nunca entra no treino. O challenger vira uma versão nova no Registry, com o alias `challenger`. O comando imprime o veredito da regra com os números, mas **nunca move o `champion`**.
+3. **Promoção.** `make promote` é uma decisão humana. O comando reavalia a regra, confere o sha256 do artefato, move `previous` e `champion`, troca `models/champion/` de forma atômica, reconfere e grava um run de auditoria (quem, quando, por quê).
+4. **Rollback.** `make rollback`, também humano, devolve o `champion` à versão `previous`, reexporta o arquivo dela e grava outro run de auditoria.
+
+| Etapa | Quem age | O que exige |
+| :--- | :--- | :--- |
+| Alerta `CRITICO` | automático (monitor e demo) | lote rotulado com queda de AUC ≥ 0,05 |
+| Retreino | comando explícito (`make retrain`) | um alerta `CRITICO` não consumido, emitido contra o champion atual |
+| Promoção | **pessoa** (`make promote`) | challenger elegível pela regra, ou `--override` com `--reason` |
+| Rollback | **pessoa** (`make rollback`) | uma versão `previous` |
+
+**Regra de promoção** (`src/monitoring/promotion.py`): o challenger é elegível se passa no contrato e na integridade, se a AUC dele no holdout supera a do champion em pelo menos `PROMOTION_MIN_GAIN` = 0,02 e se, no teste da referência, a AUC dele não fica abaixo da do champion em mais de `PROMOTION_MAX_REGRESSION` = 0,02. Os dois limiares foram fixados antes do retreino real e não se ajustam depois de ver o resultado.
+
+**Argumentos (`ARGS=`):** os alvos repassam `ARGS` ao módulo. Aspas dentro dele valem.
+
+```bash
+make retrain ARGS="--alert-run <run_id>"                          # um alerta específico
+make retrain ARGS="--force-no-alert --reason 'motivo'"            # sem alerta (exceção registrada)
+make retrain ARGS="--alert-run <run_id> --allow-reuse --reason 'motivo'"  # alerta já consumido
+make promote ARGS="--version 3"                                   # outra versão que não o challenger
+make promote ARGS="--override --reason 'motivo'"                  # promove inelegível (auditado)
+make rollback ARGS="--reason 'motivo'"
+```
+
+| Comando | 0 | 2 | 3 | 1 |
+| :--- | :--- | :--- | :--- | :--- |
+| `retrain` | challenger registrado (elegível ou não) | recusa: sem alerta `CRITICO` válido | o contrato barrou a referência ou o lote | erro operacional |
+| `promote` | promovido e estado `CONSISTENT` | recusa: challenger inelegível sem `--override` | | erro operacional (inclui troca interrompida, `INCONSISTENT`) |
+| `rollback` | revertido e estado `CONSISTENT` | | | erro operacional (inclui sem `previous`) |
+
+- `models/baseline_model.joblib` é só o artefato do baseline: promoção e rollback **nunca** o tocam. O modelo servido é o de `models/champion/`, e um `train` repetido não move o `champion`.
+- Depois de uma promoção ou de um rollback, rode `make demo-drift` antes de usar o `make monitor` com um lote rotulado. O baseline de AUC do monitor é o run `production_t0` do mesmo `model_version`, e cada challenger tem um `model_version` próprio (`retrain-<sha256[:12]>`). Sem esse baseline, o monitor falha fechado; a alternativa é passar `BASELINE_AUC=`.
 
 ### DVC: reprodução local
 
@@ -291,6 +337,7 @@ O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC 
 | [0004](docs/adrs/0004-evidently-drift-detection.md)               | Detecção de Data/Concept Drift com Evidently                      |
 | [0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md) | PSI e queda de ROC-AUC como sinais complementares ao KS             |
 | [0006](docs/adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md) | MLflow (SQLite) e DVC locais, sem remoto externo (licença Kaggle)   |
+| [0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md)      | Retreino só com alerta `CRITICO`, Registry com aliases e promoção humana |
 
 ## Vídeo STAR
 

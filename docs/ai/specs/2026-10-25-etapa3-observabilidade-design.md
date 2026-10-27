@@ -1,6 +1,6 @@
 # Etapa 3: Observabilidade de pipelines e modelos (design)
 
-> **Status:** aprovada em 2026-10-26. Núcleo (§4.1 a §4.6, §4.8) implementado e comprovado em 2026-10-27; a extensão 4.7 (retreino, Registry, promoção) segue pendente.
+> **Status:** aprovada em 2026-10-26. Núcleo (§4.1 a §4.6, §4.8) implementado e comprovado em 2026-10-27. A extensão 4.7 (retreino, Registry, promoção) foi implementada e testada com dados sintéticos em 2026-10-27 ([ADR-0007](../../adrs/0007-retreino-registry-e-promocao-humana.md), limiares pré-registrados); a demonstração com os dados reais (critério 10) segue pendente.
 > **Convenção:** o que o usuário decidiu está marcado como **[decidido]**. O que é palpite meu está marcado como **[minha decisão]** e pode ser corrigido.
 > **Origem:** brainstorming de 2026-10-25, `docs/tech-challenge-fase4-checklist.md` (Etapa 3), o PDF do Tech Challenge Fase 4 e as aulas do MOD3 (Monitoramento de Pipelines e Infraestrutura).
 > **Decisões já registradas:** [ADR-0006](../../adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md) (MLflow + DVC locais), [ADR-0005](../../adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md) (PSI e queda de AUC), [relatório de architecture review](../reports/2026-10-25-architecture-review-src.md).

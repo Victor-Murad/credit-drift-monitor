@@ -6,6 +6,7 @@ Data       | Autor          | Descrição
 --------------------------------------------------------------------------------
 2026-10-25 | Eduardo Batista | Criação da ADR 0006 detalhando MLflow e DVC, ambos locais, na Etapa 3.
 2026-10-27 | Eduardo Batista | Status para Implementada após a execução real do núcleo da Etapa 3 (pipeline_run_id 20261027T103457Z).
+2026-10-27 | Eduardo Batista | Nota: o champion servido passou a ser `deps` das demos no dvc.yaml (ADR-0007), o que fecha a limitação do dvc repro com promoção e rollback.
 ================================================================================
 -->
 
@@ -90,3 +91,5 @@ Os três pontos acima foram fechados na [spec da Etapa 3](../ai/specs/2026-10-25
 - O MLflow usa `mlflow.db` e `mlartifacts/`, fora do git. A tag `pipeline_run_id` liga cada run de estágio ao log JSONL anexado.
 - Na execução real (`pipeline_run_id` `20261027T103457Z`), t0 deu `OK`, t1 `ATENCAO` e t2 `CRITICO`.
 - Limitação conhecida: o champion servido (`models/champion/`) fica fora dos `outs`. Por isso o `dvc repro` não percebe uma promoção nem um rollback (Fase B, ADR-0007 ainda a criar).
+
+> **Nota (2026-10-27, Fase B):** a limitação acima foi tratada na [ADR-0007](0007-retreino-registry-e-promocao-humana.md). O champion continua fora dos `outs`, mas os dois arquivos de `models/champion/` passaram a ser `deps` de `contract_demo` e `drift_demo`. Depois de uma promoção ou de um rollback, o `dvc repro` reexecuta as duas demos. Com `MONITORING_TRACKING=off` não há champion, e o `dvc repro` para nessas demos; nesse caso, use `make pipeline`. O texto acima fica como histórico.

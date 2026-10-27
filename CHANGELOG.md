@@ -29,11 +29,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
   - alvos `make pipeline`, `make monitor BATCH=`, `make demo-drift`, `make tracking-ui` (porta 5001) e `make repro`;
   - `dvc.yaml` com os 4 estágios, `outs` arquivo por arquivo (`cache: false` em `models/` e `reports/`), o CSV bruto como `deps` do `prepare` e o `dvc.lock` versionado;
   - teste de aceite real (`tests/integration/test_acceptance_real.py`), que só roda na máquina com o dataset e o `mlflow.db`. Na execução real de 2026-10-27 (`pipeline_run_id` `20261027T103457Z`), t0 deu `OK`, t1 `ATENCAO` e t2 `CRITICO`.
+- Extensão §4.7 da Etapa 3: retreino, Model Registry e promoção humana ([ADR-0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md)). Implementada e coberta por testes com dados sintéticos; a demonstração com os dados reais ainda não foi executada:
+  - regra pura de promoção (`src/monitoring/promotion.py`) com os limiares pré-registrados `PROMOTION_MIN_GAIN` = 0,02 (ganho no holdout do lote `CRITICO`) e `PROMOTION_MAX_REGRESSION` = 0,02 (regressão no teste da referência);
+  - `retrain` (`python -m src.monitoring.retrain`): só roda com um alerta `CRITICO` não consumido do champion atual, ou com `--force-no-alert`/`--allow-reuse` e `--reason`. Treina com o treino da referência mais metade do lote, avalia no holdout que ficou de fora, registra o challenger (alias `challenger`, `model_version` próprio `retrain-<sha256[:12]>`) e nunca move o `champion`. Códigos 0, 2, 3 e 1;
+  - `promote` e `promote rollback` (`python -m src.monitoring.promote`): comandos humanos que reavaliam a regra, conferem o sha256, movem `champion` e `previous`, trocam `models/champion/` de forma atômica, reconferem e gravam um run de auditoria (`CONSISTENT`/`INCONSISTENT`). `--override` exige `--reason`. Códigos 0, 2 e 1;
+  - alvos `make retrain`, `make promote` e `make rollback`, que repassam `ARGS=` e mostram o código de saída exato;
+  - os arquivos de `models/champion/` passam a ser `deps` de `contract_demo` e `drift_demo` no `dvc.yaml`: o `dvc repro` reexecuta as demos depois de uma promoção ou de um rollback.
 
 ### Alterado
 - `make data`, `make train`, `make contract-demo` e `make demo-drift` (e os apelidos `drift-demo`, `etapa1` e `etapa2`) passam a chamar `src.monitoring.stage`, com rastreamento no MLflow. `MONITORING_TRACKING=off` desliga o rastreamento.
 - `DriftResult.concept_drift` renomeado para `label_shift`. O JSON mantém `concept_drift` como alias obsoleto até a Etapa 4, e a ADR-0005 (item 4) ganhou uma emenda.
-- ADR-0006 passa a `Implementada` (2026-10-27).
+- ADR-0006 passa a `Implementada` (2026-10-27) e ganha uma nota: a limitação do `dvc repro` com promoção e rollback foi tratada na ADR-0007.
+- Com o rastreamento desligado (`MONITORING_TRACKING=off`), o `dvc repro` passa a parar em `contract_demo` e `drift_demo`, porque não há champion; nesse caso, use `make pipeline`.
 - `models/` e `reports/` regenerados pela execução real da Etapa 3 em 2026-10-27, agora com `score_reference` no metadata e `label_shift` nos relatórios de drift. Os números do baseline e da demo não mudaram.
 - Piso do Evidently em `pyproject.toml` corrigido para `>=0.7` (a API usada, `from evidently import Report`, não existe antes).
 - Meta de cobertura do repositório (`fail_under`) elevada de 68 para 80; cobertura atual ~95%.
