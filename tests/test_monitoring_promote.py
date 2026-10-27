@@ -592,6 +592,39 @@ def test_rollback_restaura_arquivo_e_alias(cenario, tracking_env):
     assert sha256_de(cenario.baseline_file) == cenario.baseline_sha
 
 
+def test_promote_depois_do_rollback_exige_override(cenario, tracking_env, capsys):
+    """promote -> rollback -> promote: a versão revertida não volta como elegível.
+
+    O alias `challenger` continua na v2 e as AUCs do run de retreino seguem válidas
+    contra a v1, mas a v2 foi revertida por regressão: só volta com `--override`.
+    """
+    v2, sha2 = _versao(cenario.tmp_path, "challenger", seed=1, aucs=ELEGIVEL)
+    assert promote.main([]) == promote.EXIT_OK
+    assert promote.main(["rollback", "--reason", "Regressão observada"]) == 0
+    capsys.readouterr()
+    antes = _snapshot(cenario.models_dir)
+
+    for argv in ([], ["--version", str(v2)]):
+        assert promote.main(argv) == promote.EXIT_REFUSED
+        erro = capsys.readouterr().err
+        assert "rolled_back" in erro
+        assert "--override" in erro
+    assert (_alias("champion"), _alias("previous"), _alias("challenger")) == (
+        1,
+        None,
+        v2,
+    )
+    assert _snapshot(cenario.models_dir) == antes
+    assert len(_auditorias(tracking_env)) == 2  # só a promoção e o rollback
+
+    motivo = "Correção da regressão confirmada (chamado 7)"
+    assert promote.main(["--override", "--reason", motivo]) == promote.EXIT_OK
+    assert (_alias("champion"), _alias("previous")) == (v2, 1)
+    assert sha256_de(config.CHAMPION_FILE) == sha2
+    detalhes = json.loads(_auditorias(tracking_env)[-1].data.tags["details"])
+    assert (detalhes["eligible"], detalhes["reasons"]) == (False, ["rolled_back"])
+
+
 def test_rollback_sem_previous_falha(cenario, tracking_env, capsys):
     antes = _snapshot(cenario.models_dir)
 

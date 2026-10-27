@@ -663,6 +663,24 @@ def promote_alias(version: int) -> None:
     set_alias(CHAMPION_ALIAS, version)
 
 
+ROLLED_BACK_TAG = "rolled_back"
+
+
+def _mark_rolled_back(version: int) -> None:
+    with tracking.tracking_errors(
+        "Falha ao marcar a versão revertida no Model Registry"
+    ):
+        tracking.client().set_model_version_tag(
+            config.REGISTERED_MODEL_NAME, str(version), ROLLED_BACK_TAG, "true"
+        )
+    log_event(
+        logger,
+        "model_version_rolled_back",
+        model_name=config.REGISTERED_MODEL_NAME,
+        version=int(version),
+    )
+
+
 def rollback_alias() -> int:
     """Devolve `champion` à versão `previous`, consome o `previous` e devolve a versão.
 
@@ -671,6 +689,10 @@ def rollback_alias() -> int:
     rollback falhe em vez de re-promover a versão revertida sem passar pela regra de
     promoção. Se a remoção falhar, os dois aliases apontam para a mesma versão e
     repetir o rollback é seguro. Não toca nos arquivos de `models/`.
+
+    Antes de mover, o champion revertido recebe `rolled_back=true`: o alias
+    `challenger` pode continuar nele, e a promoção recusa a versão revertida sem
+    `--override` (motivo `rolled_back`). Se a tag falhar, nenhum alias foi alterado.
     """
     nome = config.REGISTERED_MODEL_NAME
     anterior = get_alias_version(PREVIOUS_ALIAS)
@@ -680,6 +702,9 @@ def rollback_alias() -> int:
             "(nenhuma promoção desde o último rollback). Nenhum alias foi alterado."
         )
     versao = int(anterior.version)
+    atual = get_alias_version(CHAMPION_ALIAS)
+    if atual is not None and int(atual.version) != versao:
+        _mark_rolled_back(int(atual.version))
     set_alias(CHAMPION_ALIAS, versao)
     delete_alias(PREVIOUS_ALIAS)
     return versao

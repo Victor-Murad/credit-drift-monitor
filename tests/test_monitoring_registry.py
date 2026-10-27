@@ -652,6 +652,9 @@ def test_rollback_devolve_previous_e_falha_sem_previous(tracking_env, tmp_path):
     assert rollback_alias() == 1
     # O previous é consumido: um segundo rollback não re-promove a versão revertida.
     assert (_alias("champion"), _alias("previous")) == (1, None)
+    # A versão revertida fica marcada: a promoção exige `--override` para trazê-la.
+    assert require_version(2).tags.get("rolled_back") == "true"
+    assert "rolled_back" not in require_version(1).tags
     with pytest.raises(RegistryStateError, match="previous"):
         rollback_alias()
     assert _alias("champion") == 1

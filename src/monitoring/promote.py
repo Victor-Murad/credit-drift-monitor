@@ -10,7 +10,8 @@ Comando humano separado: o retreino nunca promove. Ordem da promoção (§4.7):
    origem da versão (padrão: a do alias `challenger`), não com as tags da versão, que
    são editáveis. A tag `model_sha256` da versão tem de ser igual à do run de origem, e
    o challenger tem de ter sido comparado com o champion ATUAL (tag `champion_version`
-   do run; senão `champion_mismatch`). Inelegível: recusa (código 2) sem tocar em nada,
+   do run; senão `champion_mismatch`). Versão que já saiu por rollback (tag
+   `rolled_back`) também é inelegível. Inelegível: recusa (código 2) sem tocar em nada,
    a menos de `--override --reason`, que fica no run de auditoria.
 2. Baixar o bundle da versão para um temporário em `models/champion/` e conferir o
    sha256 contra a tag `model_sha256` (`registry.staged_champion`). Integridade é falha
@@ -29,7 +30,8 @@ arquivo servido divergem e o `load_bundle(expected_sha256=...)` do `drift_demo` 
 volta, porque o `previous` só é devolvido depois do `champion`.
 
 O rollback segue a mesma ordem: `champion` ← `previous` (que é consumido), arquivo
-reexportado do artefato da versão antiga, reconferência e auditoria. Sem `previous`,
+reexportado do artefato da versão antiga, reconferência e auditoria. A versão revertida
+fica com a tag `rolled_back=true` e só volta com `--override --reason`. Sem `previous`,
 erro claro sem alterar nada. `models/baseline_model.joblib` (o `out` do `train`) nunca
 é tocado: o champion servido vive em `models/champion/`.
 
@@ -70,6 +72,7 @@ from src.monitoring.registry import (
     CHALLENGER_ALIAS,
     CHAMPION_ALIAS,
     PREVIOUS_ALIAS,
+    ROLLED_BACK_TAG,
     STATUS_CONSISTENT,
     STATUS_INCONSISTENT,
     RegistryStateError,
@@ -87,6 +90,9 @@ EXIT_REFUSED = 2
 ROLLBACK_COMMAND = "rollback"
 # O challenger foi comparado com outro champion: as AUCs não valem para o atual.
 REASON_CHAMPION_MISMATCH = "champion_mismatch"
+# A versão já foi champion e saiu por rollback (tag do `rollback_alias`): as AUCs
+# antigas do run ainda passam, mas a regressão observada não está nelas.
+REASON_ROLLED_BACK = "rolled_back"
 # Métricas do run de retreino (`retrain._register`) que a regra reavalia.
 AUC_METRICS = (
     "champion_holdout_auc",
@@ -195,6 +201,8 @@ def evaluate_candidate(version: int) -> Evaluation:
     motivos = list(decisao.reasons)
     if run.data.tags.get("champion_version") != str(champion):
         motivos.append(REASON_CHAMPION_MISMATCH)
+    if mv.tags.get(ROLLED_BACK_TAG) == "true":
+        motivos.append(REASON_ROLLED_BACK)
     return Evaluation(int(version), champion, decisao, tuple(motivos), aucs)
 
 
