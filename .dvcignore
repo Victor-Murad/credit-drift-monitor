@@ -1,0 +1,8 @@
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/dvcignore
+
+# Bytecode do Python: muda a cada execucao e nao deve alterar o hash das
+# dependencias de codigo (diretorios de src/) no dvc.lock.
+__pycache__/
+*.py[cod]
