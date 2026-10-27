@@ -275,6 +275,51 @@ def test_alerta_consumido_recusa_sem_flag(sandbox, com_alerta, capsys):
     assert alerta.data.tags["retrain_consumed"] == versao
 
 
+def _alertas_t2(sandbox, uri: str):
+    filtro = f"tags.run_type = 'batch' and tags.batch_name = '{sandbox.t2.stem}'"
+    return _runs(uri, filtro)
+
+
+def _monitorar_t2(sandbox) -> None:
+    """Outro alerta CRÍTICO do mesmo t2 (como um segundo `make pipeline`)."""
+    argv = ["--batch", str(sandbox.t2), "--baseline-auc", "0.75"]
+    assert monitor.main(argv) == 2
+
+
+def test_dois_alertas_do_mesmo_lote_e_dois_retreinos_seguidos(
+    sandbox, com_alerta, capsys
+):
+    _monitorar_t2(sandbox)
+    alertas = _alertas_t2(sandbox, com_alerta)
+    assert len(alertas) == 2
+    assert len({a.data.tags["batch_sha256"] for a in alertas}) == 1
+    cliente = cliente_mlflow(com_alerta)
+    nome = config.REGISTERED_MODEL_NAME
+
+    assert retrain.main([]) == retrain.EXIT_OK
+    versao = cliente.get_model_version_by_alias(nome, "challenger").version
+    for alerta in alertas:
+        tags = cliente.get_run(alerta.info.run_id).data.tags
+        assert tags["retrain_consumed"] == str(versao)
+    capsys.readouterr()
+
+    # O segundo retreino sobre o mesmo lote exige o flag explícito (§4.7).
+    assert retrain.main([]) == retrain.EXIT_REFUSED
+    assert "--allow-reuse" in capsys.readouterr().err
+    for alerta in alertas:
+        argv = ["--alert-run", alerta.info.run_id]
+        assert retrain.main(argv) == retrain.EXIT_REFUSED
+        erro = capsys.readouterr().err
+        assert "consumido" in erro
+        assert "--allow-reuse" in erro
+
+    # Um alerta novo do mesmo lote, gravado depois do retreino, também não habilita.
+    _monitorar_t2(sandbox)
+    assert retrain.main([]) == retrain.EXIT_REFUSED
+    assert len(_retrain_runs(com_alerta)) == 1
+    assert cliente.get_model_version_by_alias(nome, "challenger").version == versao
+
+
 def test_alert_run_de_lote_nao_critico_recusa(sandbox, com_alerta, capsys):
     assert retrain.main(["--alert-run", sandbox.lote_ok]) == retrain.EXIT_REFUSED
     assert "CRITICO" in capsys.readouterr().err

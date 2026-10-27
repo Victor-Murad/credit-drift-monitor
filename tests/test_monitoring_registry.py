@@ -21,6 +21,7 @@ from src.models.integrity import ModelIntegrityError, verify_model_integrity
 from src.monitoring import registry
 from src.monitoring.registry import (
     RegistryStateError,
+    alert_consumed_by,
     bootstrap_champion,
     export_champion,
     find_unconsumed_critical_run,
@@ -427,6 +428,45 @@ def test_find_unconsumed_critical_ignora_consumidos_e_nao_criticos(
     assert find_unconsumed_critical_run().info.run_id == antigo
     mark_alert_consumed(antigo, 3)
     assert find_unconsumed_critical_run() is None
+
+
+def test_consumo_vale_para_todos_os_alertas_do_mesmo_lote(tracking_env):
+    # `make pipeline` duas vezes: o `simulate` é determinístico, então os dois alertas
+    # do t2 têm o mesmo batch_sha256. Um retreino consome o LOTE, não só um run.
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    lote, outro_lote = "a" * 64, "b" * 64
+    a1 = _run_de_lote(cliente, experimento, 1_000, batch_sha256=lote)
+    a2 = _run_de_lote(cliente, experimento, 2_000, batch_sha256=lote)
+    falho = _run_de_lote(cliente, experimento, 2_500, "FAILED", batch_sha256=lote)
+    outro = _run_de_lote(cliente, experimento, 500, batch_sha256=outro_lote)
+    assert find_unconsumed_critical_run().info.run_id == a2
+    assert alert_consumed_by(cliente.get_run(a1)) is None
+
+    mark_alert_consumed(a2, 3)
+
+    assert cliente.get_run(a2).data.tags["retrain_consumed"] == "3"
+    assert cliente.get_run(a1).data.tags["retrain_consumed"] == "3"
+    assert "retrain_consumed" not in cliente.get_run(falho).data.tags
+    assert "retrain_consumed" not in cliente.get_run(outro).data.tags
+    assert find_unconsumed_critical_run().info.run_id == outro
+
+    # Alerta novo sobre um lote que já gerou challenger (outro `make pipeline`).
+    a3 = _run_de_lote(cliente, experimento, 9_000, batch_sha256=lote)
+    assert alert_consumed_by(cliente.get_run(a3)) == "3"
+    assert find_unconsumed_critical_run().info.run_id == outro
+    assert alert_consumed_by(cliente.get_run(outro)) is None
+
+
+def test_find_unconsumed_critical_filtra_pelo_model_version(tracking_env):
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    do_champion = _run_de_lote(cliente, experimento, 1_000, model_version="baseline-v1")
+    _run_de_lote(cliente, experimento, 2_000, model_version="retrain-abc")
+
+    achado = find_unconsumed_critical_run(model_version="baseline-v1")
+    assert achado.info.run_id == do_champion
+    assert find_unconsumed_critical_run(model_version="retrain-xyz") is None
 
 
 def test_find_unconsumed_critical_desempata_pelo_run_id(tracking_env):

@@ -422,14 +422,12 @@ def _search_all(cliente: Any, experiment_id: str, filtro: str) -> list[Run]:
             return runs
 
 
-def find_unconsumed_critical_run() -> Run | None:
-    """Run de lote `CRITICO` mais recente ainda não consumido por um retreino (§4.7).
+def _critical_runs() -> list[Run]:
+    """Todos os runs de lote `CRITICO` do experimento (sem experimento, lista vazia).
 
     O `search_runs` filtra só pelas tags que todo run de lote tem (`run_type`,
-    `alert_level`); `retrain_consumed`, ausente até o primeiro retreino, é conferida
-    aqui, assim como o status `FINISHED` (lote cujo run falhou não habilita
-    retreino). Mais recente = maior `start_time`, com empate decidido pelo maior
-    `run_id`, para a escolha ser determinística. Sem experimento ou alerta, `None`.
+    `alert_level`); `retrain_consumed`, ausente até o primeiro retreino, e o status
+    são conferidos por quem chama.
     """
     filtro = (
         f"tags.run_type = '{BATCH_RUN_TYPE}' and tags.alert_level = '{CRITICAL_LEVEL}'"
@@ -438,12 +436,64 @@ def find_unconsumed_critical_run() -> Run | None:
         cliente = tracking.client()
         experimento = cliente.get_experiment_by_name(config.MLFLOW_EXPERIMENT)
         if experimento is None:
-            return None
-        runs = _search_all(cliente, experimento.experiment_id, filtro)
+            return []
+        return _search_all(cliente, experimento.experiment_id, filtro)
+
+
+def _consumed_batches(runs: list[Run]) -> dict[str, str]:
+    """`batch_sha256` → versão do challenger que já consumiu um alerta desse lote.
+
+    O consumo mais recente vence (ordem de `start_time`), para a mensagem citar o
+    último challenger treinado sobre o lote.
+    """
+    consumidos: dict[str, str] = {}
+    for r in sorted(runs, key=lambda r: (r.info.start_time or 0, r.info.run_id)):
+        tags = r.data.tags
+        if RETRAIN_CONSUMED_TAG in tags and tags.get("batch_sha256"):
+            consumidos[tags["batch_sha256"]] = tags[RETRAIN_CONSUMED_TAG]
+    return consumidos
+
+
+def _consumption(run: Run, consumidos: dict[str, str]) -> str | None:
+    tags = run.data.tags
+    if RETRAIN_CONSUMED_TAG in tags:
+        return tags[RETRAIN_CONSUMED_TAG]
+    sha = tags.get("batch_sha256")
+    return consumidos.get(sha) if sha else None
+
+
+def alert_consumed_by(run: Run) -> str | None:
+    """Versão do challenger que consumiu o alerta `run` ou outro alerta do MESMO lote.
+
+    O consumo é do lote (`batch_sha256`), não só do run: reexecuções da demo gravam
+    novos alertas do mesmo t2 (o `simulate` é determinístico), e um segundo retreino
+    sobre os mesmos dados é o reaproveitamento que exige o flag explícito (§4.7).
+    """
+    if RETRAIN_CONSUMED_TAG in run.data.tags:
+        return run.data.tags[RETRAIN_CONSUMED_TAG]
+    if not run.data.tags.get("batch_sha256"):
+        return None
+    return _consumption(run, _consumed_batches(_critical_runs()))
+
+
+def find_unconsumed_critical_run(model_version: str | None = None) -> Run | None:
+    """Run de lote `CRITICO` mais recente ainda não consumido por um retreino (§4.7).
+
+    Não consumido = sem `retrain_consumed` e de um lote (`batch_sha256`) que nenhum
+    retreino consumiu (`alert_consumed_by`). Só status `FINISHED` (lote cujo run
+    falhou não habilita retreino) e, com `model_version`, só alertas emitidos contra
+    esse modelo (a tag `model_version` do run de lote). Mais recente = maior
+    `start_time`, com empate decidido pelo maior `run_id`, para a escolha ser
+    determinística. Sem experimento ou alerta, `None`.
+    """
+    runs = _critical_runs()
+    consumidos = _consumed_batches(runs)
     candidatos = [
         r
         for r in runs
-        if r.info.status == _FINISHED and RETRAIN_CONSUMED_TAG not in r.data.tags
+        if r.info.status == _FINISHED
+        and _consumption(r, consumidos) is None
+        and (model_version is None or r.data.tags.get("model_version") == model_version)
     ]
     if not candidatos:
         return None
@@ -490,17 +540,35 @@ def mark_alert_consumed(batch_run_id: str, version: int) -> None:
     """Grava `retrain_consumed=<versão>` no run do alerta que gerou o challenger.
 
     O run tem de ser um lote `CRITICO` (`require_critical_run`); um consumo anterior
-    é sobrescrito (reaproveitamento já decidido pelo chamador).
+    é sobrescrito (reaproveitamento já decidido pelo chamador). Os outros alertas
+    `CRITICO` terminados e não consumidos do mesmo lote (`batch_sha256`) recebem a
+    mesma tag: a trilha mostra em cada run que o lote já gerou um challenger.
     """
-    require_critical_run(batch_run_id)
+    alvo = require_critical_run(batch_run_id)
+    sha = alvo.data.tags.get("batch_sha256")
+    mesmo_lote = (
+        [
+            r.info.run_id
+            for r in _critical_runs()
+            if r.info.run_id != batch_run_id
+            and r.info.status == _FINISHED
+            and r.data.tags.get("batch_sha256") == sha
+            and RETRAIN_CONSUMED_TAG not in r.data.tags
+        ]
+        if sha
+        else []
+    )
     with tracking.tracking_errors("Falha ao marcar o alerta como consumido"):
-        tracking.client().set_tag(batch_run_id, RETRAIN_CONSUMED_TAG, str(int(version)))
+        cliente = tracking.client()
+        for run_id in (batch_run_id, *mesmo_lote):
+            cliente.set_tag(run_id, RETRAIN_CONSUMED_TAG, str(int(version)))
     log_event(
         logger,
         "alert_consumed",
         mlflow_run_id=batch_run_id,
         model_name=config.REGISTERED_MODEL_NAME,
         version=int(version),
+        same_batch_run_ids=mesmo_lote,
     )
 
 
