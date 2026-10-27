@@ -23,6 +23,7 @@ from src.monitoring.registry import (
     RegistryStateError,
     alert_consumed_by,
     bootstrap_champion,
+    delete_alias,
     export_champion,
     find_unconsumed_critical_run,
     get_alias_version,
@@ -32,8 +33,10 @@ from src.monitoring.registry import (
     register_challenger,
     register_model_version,
     require_critical_run,
+    require_version,
     rollback_alias,
     set_alias,
+    staged_champion,
 )
 from src.monitoring.tracking import TrackingUnavailableError, configure_tracking
 from tests.conftest import cliente_mlflow, make_valid_df, sha256_de
@@ -306,6 +309,67 @@ def test_export_champion_falha_na_troca_do_modelo_restaura_o_par(
         "baseline_metadata.json",
         "baseline_model.joblib",
     ]
+
+
+def _conteudo(pasta: Path) -> dict[str, str]:
+    """Nome → sha256 dos arquivos; o temporário `.export-*` aparece só pelo nome."""
+    return {
+        p.name: sha256_de(p) if p.is_file() else "<dir>"
+        for p in sorted(pasta.iterdir())
+    }
+
+
+def test_staged_champion_confere_antes_e_so_troca_no_install(
+    tracking_env, tmp_path, champion_dir
+):
+    """O bundle é baixado e conferido sem tocar em `models/champion/` até o install."""
+    v1, sha1 = _registrar(tmp_path, "a")
+    v2, sha2 = _registrar(tmp_path, "b", seed=1)
+    export_champion(v1)
+    antes = _conteudo(champion_dir)
+    with staged_champion(v2) as preparado:
+        assert (preparado.version, preparado.model_sha256) == (v2, sha2)
+        assert sha256_de(preparado.model) == sha2
+        # Conferido e pronto, mas o champion servido ainda é o da v1.
+        assert {
+            n: s for n, s in _conteudo(champion_dir).items() if not n.startswith(".")
+        } == antes
+        preparado.install()
+    assert sha256_de(config.CHAMPION_FILE) == sha2
+    verify_model_integrity(config.CHAMPION_FILE, config.CHAMPION_METADATA_FILE)
+    assert sorted(_conteudo(champion_dir)) == [
+        "baseline_metadata.json",
+        "baseline_model.joblib",
+    ]
+    assert sha1 != sha2
+
+
+def test_staged_champion_sem_install_nao_toca_models(
+    tracking_env, tmp_path, champion_dir
+):
+    v1, _ = _registrar(tmp_path, "a")
+    v2, _ = _registrar(tmp_path, "b", seed=1)
+    export_champion(v1)
+    antes = _conteudo(champion_dir)
+    with staged_champion(v2):
+        pass
+    assert _conteudo(champion_dir) == antes
+
+
+def test_staged_champion_install_com_oserror_vira_erro_de_dominio(
+    tracking_env, tmp_path, champion_dir, monkeypatch
+):
+    v1, sha1 = _registrar(tmp_path, "a")
+    v2, _ = _registrar(tmp_path, "b", seed=1)
+    export_champion(v1)
+    monkeypatch.setattr(
+        registry.os, "replace", _replace_que_falha(lambda: config.CHAMPION_FILE)
+    )
+    with staged_champion(v2) as preparado:
+        with pytest.raises(ModelIntegrityError, match="Falha ao exportar o champion"):
+            preparado.install()
+    assert sha256_de(config.CHAMPION_FILE) == sha1
+    verify_model_integrity(config.CHAMPION_FILE, config.CHAMPION_METADATA_FILE)
 
 
 def test_requisito_ausente_falha_com_mensagem(tracking_env, tmp_path, monkeypatch):
@@ -593,6 +657,23 @@ def test_rollback_devolve_previous_e_falha_sem_previous(tracking_env, tmp_path):
     assert _alias("champion") == 1
 
 
+def test_delete_alias_remove_e_ignora_alias_ausente(tracking_env, tmp_path):
+    _tres_versoes(tmp_path)
+    set_alias("previous", 1)
+    delete_alias("previous")
+    assert _alias("previous") is None
+    # Alias ausente: nada a fazer, sem erro.
+    delete_alias("previous")
+    assert _alias("previous") is None
+
+
+def test_require_version_devolve_a_versao_ou_erro_de_dominio(tracking_env, tmp_path):
+    _tres_versoes(tmp_path)
+    assert int(require_version(2).version) == 2
+    with pytest.raises(RegistryStateError, match="Versão 99"):
+        require_version(99)
+
+
 def test_rollback_sem_modelo_registrado_falha_com_erro_de_dominio(tracking_env):
     configure_tracking()
     with pytest.raises(RegistryStateError, match="previous"):
@@ -708,6 +789,37 @@ def test_audit_run_recusa_entrada_invalida_sem_criar_run(
     }
     with pytest.raises(ValueError, match=erro):
         log_audit_run(**{**padrao, **argumentos})
+    experimento = configure_tracking()
+    assert cliente_mlflow(tracking_env).search_runs([experimento]) == []
+
+
+def test_audit_run_grava_o_status_do_estado_servido(tracking_env):
+    run_id = log_audit_run(
+        action="promote",
+        version=2,
+        reason="motivo",
+        operator="analista",
+        details={},
+        status="INCONSISTENT",
+    )
+    tags = cliente_mlflow(tracking_env).get_run(run_id).data.tags
+    assert tags["status"] == "INCONSISTENT"
+    sem_status = log_audit_run(
+        action="rollback", version=1, reason="motivo", operator="a", details={}
+    )
+    assert "status" not in cliente_mlflow(tracking_env).get_run(sem_status).data.tags
+
+
+def test_audit_run_recusa_status_desconhecido_sem_criar_run(tracking_env):
+    with pytest.raises(ValueError, match="QUEBRADO"):
+        log_audit_run(
+            action="promote",
+            version=2,
+            reason="motivo",
+            operator="a",
+            details={},
+            status="QUEBRADO",
+        )
     experimento = configure_tracking()
     assert cliente_mlflow(tracking_env).search_runs([experimento]) == []
 

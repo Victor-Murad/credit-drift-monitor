@@ -15,6 +15,9 @@
   feita por temporário no mesmo diretório + `os.replace` e conferida pelo sha256 da
   tag `model_sha256` da versão: divergência falha fechado. Quem dá o alias exporta
   ANTES (ver `src.monitoring.stage.run_train`): export falho não deixa alias.
+  `staged_champion` separa as duas metades (baixar e conferir; `install`), para o
+  comando de promoção conferir o arquivo antes de mover os aliases e só trocá-lo
+  depois (`src.monitoring.promote`).
 
 As constantes `src.config.REGISTERED_MODEL_NAME` e `CHAMPION_*` são lidas na chamada,
 para que os testes possam redirecioná-las.
@@ -30,7 +33,9 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
@@ -238,39 +243,36 @@ def _trocar_par(modelo: Path, metadata: Path, backup: Path) -> None:
                 destino_metadata.unlink(missing_ok=True)
 
 
-def _baixar_conferir_e_trocar(
-    run_id: str, esperado: str, version: int, destino: Path
-) -> None:
-    destino.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".export-", dir=destino) as tmp:
-        with tracking.tracking_errors("Falha ao baixar o bundle do run de origem"):
-            baixado = Path(
-                tracking.client().download_artifacts(
-                    run_id, BUNDLE_ARTIFACT_DIR, dst_path=tmp
-                )
-            )
-        modelo = tracking.require_path(
-            baixado / BUNDLE_MODEL_FILE, "Bundle do champion"
-        )
-        metadata = tracking.require_path(
-            baixado / BUNDLE_METADATA_FILE, "Metadata do champion"
-        )
-        _conferir_bundle(modelo, metadata, esperado, version)
-        _trocar_par(modelo, metadata, Path(tmp) / "metadata_anterior.json")
+def _export_error(version: int, destino: Path, exc: OSError) -> ModelIntegrityError:
+    return ModelIntegrityError(
+        f"Falha ao exportar o champion (versão {version}) para {destino}: {exc}"
+    )
 
 
-def export_champion(version: int) -> None:
-    """Copia bundle + metadata do run de origem da `version` para `models/champion/`.
+@dataclass(frozen=True)
+class StagedChampion:
+    """Bundle de uma versão já baixado e conferido, ainda fora do lugar servido.
 
-    Baixa o artefato `bundle/` num temporário dentro de `CHAMPION_DIR` (mesmo
-    sistema de arquivos), confere o sha256 contra a tag `model_sha256` e só então
-    troca os arquivos com `os.replace`, metadata primeiro e modelo por último (ver
-    `_trocar_par` para a janela entre as duas trocas).
-
-    Divergência de hash ou erro de arquivo (`OSError`: diretório, download local,
-    leitura, troca) levanta `ModelIntegrityError` com o caminho, sem credenciais;
-    falha do MLflow levanta `TrackingUnavailableError` (mensagem redigida).
+    `install` põe o par em `models/champion/` (`_trocar_par`); só vale dentro do
+    `staged_champion` que o criou, que apaga o temporário ao sair.
     """
+
+    version: int
+    model_sha256: str
+    model: Path
+    metadata: Path
+    backup: Path
+
+    def install(self) -> None:
+        """Troca o champion servido por este bundle (`OSError` vira erro de domínio)."""
+        try:
+            _trocar_par(self.model, self.metadata, self.backup)
+        except OSError as exc:
+            raise _export_error(self.version, Path(config.CHAMPION_DIR), exc) from exc
+
+
+def _export_source(version: int) -> tuple[str, str]:
+    """`(model_sha256, run de origem)` da `version`; sem um deles, falha fechado."""
     nome = config.REGISTERED_MODEL_NAME
     with tracking.tracking_errors("Falha ao ler a versão do Model Registry"):
         mv = tracking.client().get_model_version(nome, str(version))
@@ -284,14 +286,73 @@ def export_champion(version: int) -> None:
         raise ModelIntegrityError(
             f"Versão {version} de {nome} sem run de origem: bundle indisponível."
         )
+    return esperado, mv.run_id
 
+
+def _baixar_e_conferir(
+    run_id: str, esperado: str, version: int, tmp: Path
+) -> StagedChampion:
+    with tracking.tracking_errors("Falha ao baixar o bundle do run de origem"):
+        baixado = Path(
+            tracking.client().download_artifacts(
+                run_id, BUNDLE_ARTIFACT_DIR, dst_path=str(tmp)
+            )
+        )
+    modelo = tracking.require_path(baixado / BUNDLE_MODEL_FILE, "Bundle do champion")
+    metadata = tracking.require_path(
+        baixado / BUNDLE_METADATA_FILE, "Metadata do champion"
+    )
+    _conferir_bundle(modelo, metadata, esperado, version)
+    return StagedChampion(
+        version=int(version),
+        model_sha256=esperado,
+        model=modelo,
+        metadata=metadata,
+        backup=tmp / "metadata_anterior.json",
+    )
+
+
+@contextmanager
+def staged_champion(version: int) -> Iterator[StagedChampion]:
+    """Baixa o bundle da `version` e confere o sha256, sem tocar no champion servido.
+
+    O temporário fica dentro de `CHAMPION_DIR` (mesmo sistema de arquivos, para o
+    `os.replace` ser atômico) e é apagado ao sair, com ou sem `install`. Assim o
+    comando de promoção confere o arquivo ANTES de mover qualquer alias (§4.7).
+
+    Divergência de hash ou erro de arquivo (`OSError`: diretório, download local,
+    leitura) levanta `ModelIntegrityError` com o caminho, sem credenciais; falha do
+    MLflow levanta `TrackingUnavailableError` (mensagem redigida).
+    """
+    esperado, run_id = _export_source(version)
     destino = Path(config.CHAMPION_DIR)
     try:
-        _baixar_conferir_e_trocar(mv.run_id, esperado, version, destino)
+        destino.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=".export-", dir=destino))
     except OSError as exc:
-        raise ModelIntegrityError(
-            f"Falha ao exportar o champion (versão {version}) para {destino}: {exc}"
-        ) from exc
+        raise _export_error(version, destino, exc) from exc
+    try:
+        try:
+            preparado = _baixar_e_conferir(run_id, esperado, version, tmp)
+        except OSError as exc:
+            raise _export_error(version, destino, exc) from exc
+        yield preparado
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def export_champion(version: int) -> None:
+    """Copia bundle + metadata do run de origem da `version` para `models/champion/`.
+
+    `staged_champion` (baixa e confere o sha256 contra a tag `model_sha256`) e,
+    só então, `install`: os arquivos trocam com `os.replace`, metadata primeiro e
+    modelo por último (ver `_trocar_par` para a janela entre as duas trocas).
+    Os erros são os de `staged_champion` e de `StagedChampion.install`.
+    """
+    with staged_champion(version) as preparado:
+        preparado.install()
+    nome = config.REGISTERED_MODEL_NAME
+    esperado = preparado.model_sha256
     log_event(
         logger,
         "champion_exported",
@@ -318,7 +379,7 @@ def _not_found(exc: MlflowException, *, malformed_id: bool = False) -> bool:
     return exc.error_code in codigos
 
 
-def _require_version(version: int) -> ModelVersion:
+def require_version(version: int) -> ModelVersion:
     """A `version` de `REGISTERED_MODEL_NAME`; inexistente é `RegistryStateError`.
 
     "Não existe" é estado do Registry, não MLflow indisponível: não passa pela
@@ -587,7 +648,7 @@ def promote_alias(version: int) -> None:
     inexistente: `RegistryStateError`, sem alterar alias.
     """
     atual = get_alias_version(CHAMPION_ALIAS)
-    _require_version(version)
+    require_version(version)
     if atual is not None and int(atual.version) == int(version):
         log_event(
             logger,
@@ -620,18 +681,27 @@ def rollback_alias() -> int:
         )
     versao = int(anterior.version)
     set_alias(CHAMPION_ALIAS, versao)
+    delete_alias(PREVIOUS_ALIAS)
+    return versao
+
+
+def delete_alias(alias: str) -> None:
+    """Remove o `alias` de `REGISTERED_MODEL_NAME`; alias ausente não faz nada."""
+    atual = get_alias_version(alias)
+    if atual is None:
+        return
+    nome = config.REGISTERED_MODEL_NAME
     with tracking.tracking_errors(
-        "Falha ao remover o alias previous no Model Registry"
+        f"Falha ao remover o alias {alias} no Model Registry"
     ):
-        tracking.client().delete_registered_model_alias(nome, PREVIOUS_ALIAS)
+        tracking.client().delete_registered_model_alias(nome, alias)
     log_event(
         logger,
         "model_alias_deleted",
         model_name=nome,
-        alias=PREVIOUS_ALIAS,
-        version=versao,
+        alias=alias,
+        version=int(atual.version),
     )
-    return versao
 
 
 # MARK: auditoria
@@ -640,6 +710,10 @@ AUDIT_RUN_TYPE = "audit"
 ACTION_PROMOTE = "promote"
 ACTION_ROLLBACK = "rollback"
 AUDIT_ACTIONS = frozenset({ACTION_PROMOTE, ACTION_ROLLBACK})
+# Estado reconferido depois da troca (alias `champion` x arquivo servido).
+STATUS_CONSISTENT = "CONSISTENT"
+STATUS_INCONSISTENT = "INCONSISTENT"
+AUDIT_STATUSES = frozenset({STATUS_CONSISTENT, STATUS_INCONSISTENT})
 _REDACTED = "***"
 # Chaves de `details` cujo valor é segredo por natureza (redigir a mais é seguro).
 _SENSITIVE_KEY = re.compile(
@@ -706,13 +780,15 @@ def log_audit_run(
     details: dict[str, Any],
     operator: str | None = None,
     clock: Callable[[], datetime] = _utc_now,
+    status: str | None = None,
 ) -> str:
     """Run de auditoria (`run_type=audit`) de uma promoção ou rollback: quem, quando, por quê.
 
     Tags: `action` (`promote`/`rollback`), `model_name`, `version`, `reason`,
     `operator` (padrão: `getpass.getuser()`), `timestamp_utc` (ISO 8601 em UTC, do
-    `clock`, injetável nos testes), `pipeline_run_id` e `details` (JSON). Antes de
-    gravar: motivo vazio, ação desconhecida, hora sem fuso, `details` não
+    `clock`, injetável nos testes), `pipeline_run_id`, `details` (JSON) e, se dado,
+    `status` (`CONSISTENT`/`INCONSISTENT`, o estado reconferido). Antes de
+    gravar: motivo vazio, ação ou status desconhecidos, hora sem fuso, `details` não
     serializável ou tag acima do limite do MLflow são `ValueError`, sem run. URIs
     no motivo e nos detalhes saem redigidas e chaves sensíveis (senha, token...)
     viram `***`. Devolve o `run_id`.
@@ -724,6 +800,11 @@ def log_audit_run(
         raise ValueError(
             f"Ação de auditoria desconhecida: {action} (esperado: "
             f"{', '.join(sorted(AUDIT_ACTIONS))})."
+        )
+    if status is not None and status not in AUDIT_STATUSES:
+        raise ValueError(
+            f"Status de auditoria desconhecido: {status} (esperado: "
+            f"{', '.join(sorted(AUDIT_STATUSES))})."
         )
     motivo = reason.strip() if isinstance(reason, str) else ""
     if not motivo:
@@ -752,6 +833,8 @@ def log_audit_run(
         "pipeline_run_id": RUN_ID,
         "details": detalhes,
     }
+    if status is not None:
+        tags["status"] = status
     longas = sorted(k for k, v in tags.items() if len(v) > MAX_TAG_VAL_LENGTH)
     if longas:
         raise ValueError(
