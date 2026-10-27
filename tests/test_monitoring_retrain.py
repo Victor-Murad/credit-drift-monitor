@@ -320,6 +320,33 @@ def test_dois_alertas_do_mesmo_lote_e_dois_retreinos_seguidos(
     assert cliente.get_model_version_by_alias(nome, "challenger").version == versao
 
 
+def test_alerta_de_outro_champion_recusa_sem_flag(sandbox, com_alerta, capsys):
+    # Alerta emitido contra um modelo que já não é o champion (ex.: antes de um
+    # `make promote`): o champion atual nunca ficou CRÍTICO.
+    antigo = "retrain-000000000000"
+    cliente_mlflow(com_alerta).set_tag(sandbox.alerta, "model_version", antigo)
+
+    assert retrain.main([]) == retrain.EXIT_REFUSED
+    erro = capsys.readouterr().err
+    assert train.MODEL_VERSION in erro
+    assert "--allow-reuse" in erro
+    assert retrain.main(["--alert-run", sandbox.alerta]) == retrain.EXIT_REFUSED
+    erro = capsys.readouterr().err
+    assert antigo in erro
+    assert train.MODEL_VERSION in erro
+    assert "--allow-reuse" in erro
+    assert not _retrain_runs(com_alerta)
+
+    motivo = "o lote ainda representa a produção; retreinar sobre o alerta antigo"
+    argv = ["--alert-run", sandbox.alerta, "--allow-reuse", "--reason", motivo]
+    assert retrain.main(argv) == retrain.EXIT_OK
+
+    (run,) = _retrain_runs(com_alerta)
+    assert run.data.tags["alert_reused"] == "true"
+    assert run.data.tags["alert_model_version"] == antigo
+    assert run.data.tags["retrain_reason"] == motivo
+
+
 def test_alert_run_de_lote_nao_critico_recusa(sandbox, com_alerta, capsys):
     assert retrain.main(["--alert-run", sandbox.lote_ok]) == retrain.EXIT_REFUSED
     assert "CRITICO" in capsys.readouterr().err

@@ -4,11 +4,15 @@
     uv run python -m src.monitoring.retrain --alert-run ID --allow-reuse --reason TEXTO
     uv run python -m src.monitoring.retrain --force-no-alert --reason TEXTO
 
-Gatilho: o run de lote `CRITICO` mais recente ainda não consumido (ou o `--alert-run`
-dado, conferido por `require_critical_run`). Sem alerta, recusa; `--force-no-alert`
-(sem alerta, lote `config.PRODUCTION_T2_FILE`) e `--allow-reuse` (alerta já consumido)
-exigem `--reason`, que fica no run. O lote do alerta é o arquivo da tag `batch_path`,
-com o sha256 conferido contra a tag `batch_sha256` (o `simulate` regera t1/t2).
+Gatilho: o run de lote `CRITICO` mais recente ainda não consumido e emitido contra o
+champion atual (tag `model_version` do lote igual à `bundle_model_version` do champion),
+ou o `--alert-run` dado, conferido por `require_critical_run`. O consumo é do LOTE
+(`batch_sha256`): um alerta de um lote que já gerou challenger conta como consumido,
+mesmo que seja outro run (reexecuções da demo regravam o mesmo t2). Sem alerta
+elegível, recusa; `--force-no-alert` (sem alerta, lote `config.PRODUCTION_T2_FILE`) e
+`--allow-reuse` (alerta consumido ou emitido contra outro champion) exigem `--reason`,
+que fica no run. O lote do alerta é o arquivo da tag `batch_path`, com o sha256
+conferido contra a tag `batch_sha256` (o `simulate` regera t1/t2).
 
 Ordem, toda ANTES de treinar: champion do Registry com o sha256 conferido
 (`load_bundle(expected_sha256=...)`), referência com o mesmo `reference_sha256` do
@@ -30,11 +34,12 @@ linhagem. Só depois do registro o alerta recebe `retrain_consumed`: uma falha n
 não consome o alerta. **Nunca move `champion`**: promover é um comando humano.
 
 Códigos de saída: 0 (challenger registrado, elegível ou não: o veredito é impresso), 2
-(recusa de política: sem alerta CRÍTICO não consumido, alerta consumido sem
-`--allow-reuse`, run que não é lote CRÍTICO), 3 (o contrato barrou a referência ou o
-lote) e 1 (erro operacional: rastreamento desligado, MLflow indisponível, sem champion,
-integridade, arquivo ausente ou divergente, argumento inválido). O champion adulterado
-encerra pelo `load_bundle` ("Modelo recusado", código 1), como no `monitor`.
+(recusa de política: sem alerta CRÍTICO não consumido do champion atual, alerta
+consumido ou de outro champion sem `--allow-reuse`, run que não é lote CRÍTICO), 3 (o
+contrato barrou a referência ou o lote) e 1 (erro operacional: rastreamento desligado,
+MLflow indisponível, sem champion, integridade, arquivo ausente ou divergente,
+argumento inválido). O champion adulterado encerra pelo `load_bundle` ("Modelo
+recusado", código 1), como no `monitor`.
 
 O retreino depende do Model Registry: com `MONITORING_TRACKING=off` falha fechado.
 """
@@ -80,7 +85,6 @@ from src.monitoring.registry import (
     BUNDLE_METADATA_FILE,
     BUNDLE_MODEL_FILE,
     CHAMPION_ALIAS,
-    RETRAIN_CONSUMED_TAG,
     RegistryStateError,
     get_alias_version,
     redact_text,
@@ -174,13 +178,18 @@ def build_challenger_training(
 
 @dataclass(frozen=True)
 class RetrainTrigger:
-    """O que habilitou o retreino e o lote que ele usa."""
+    """O que habilitou o retreino e o lote que ele usa.
+
+    `reused`: o alerta só valeu pela exceção `--allow-reuse` (já consumido ou emitido
+    contra outro champion); `alert_model_version` é o modelo avaliado no alerta.
+    """
 
     trigger: str
     batch_name: str
     batch_path: Path
     expected_batch_sha256: str | None = None
     alert_run_id: str | None = None
+    alert_model_version: str | None = None
     reused: bool = False
     reason: str | None = None
 
@@ -207,9 +216,23 @@ def _trigger_from_run(run: Run, *, reused: bool, reason: str | None) -> RetrainT
         batch_path=caminho,
         expected_batch_sha256=tags["batch_sha256"],
         alert_run_id=run_id,
+        alert_model_version=tags.get("model_version"),
         reused=reused,
         reason=reason,
     )
+
+
+def _champion_model_version() -> str:
+    """`bundle_model_version` do champion atual: o alerta tem de ter sido sobre ele."""
+    champion_sha256()  # sem champion (ou sem hash): erro de domínio orientando o train
+    champion = get_alias_version(CHAMPION_ALIAS)
+    versao = champion.tags.get("bundle_model_version") if champion else None
+    if not versao:
+        raise StagePreconditionError(
+            "O champion não tem a tag bundle_model_version: não há como conferir "
+            "contra qual modelo o alerta foi emitido. Rode `make pipeline`."
+        )
+    return versao
 
 
 def resolve_trigger(
@@ -219,7 +242,11 @@ def resolve_trigger(
     allow_reuse: bool,
     reason: str | None,
 ) -> RetrainTrigger:
-    """Acha o alerta que habilita o retreino; recusa com `RetrainRefusedError`."""
+    """Acha o alerta que habilita o retreino; recusa com `RetrainRefusedError`.
+
+    Sem `--allow-reuse`, o alerta tem de ser de um lote ainda não consumido
+    (`alert_consumed_by`) e emitido contra o champion atual.
+    """
     if force_no_alert:
         caminho = Path(config.PRODUCTION_T2_FILE)
         return RetrainTrigger(
@@ -228,28 +255,41 @@ def resolve_trigger(
             batch_path=caminho,
             reason=reason,
         )
+    do_champion = _champion_model_version()
     if alert_run is None:
-        run = registry.find_unconsumed_critical_run()
+        run = registry.find_unconsumed_critical_run(model_version=do_champion)
         if run is None:
             raise RetrainRefusedError(
-                "Nenhum alerta CRÍTICO não consumido no MLflow: o retreino só roda a "
-                "partir de um lote CRÍTICO (queda de AUC). Para reaproveitar um alerta "
-                "já consumido: `--alert-run <id> --allow-reuse --reason <motivo>`; "
-                "para retreinar sem alerta: `--force-no-alert --reason <motivo>`."
+                "Nenhum alerta CRÍTICO não consumido do champion atual "
+                f"(model_version={do_champion}) no MLflow: o retreino só roda a "
+                "partir de um lote CRÍTICO (queda de AUC) desse modelo. Um alerta de "
+                "lote que já gerou challenger, ou emitido contra outro modelo, só "
+                "vale com `--alert-run <id> --allow-reuse --reason <motivo>`; para "
+                "retreinar sem alerta: `--force-no-alert --reason <motivo>`."
             )
         return _trigger_from_run(run, reused=False, reason=reason)
     try:
         run = registry.require_critical_run(alert_run)
     except ValueError as exc:
         raise RetrainRefusedError(str(exc)) from exc
-    consumido = run.data.tags.get(RETRAIN_CONSUMED_TAG)
+    consumido = registry.alert_consumed_by(run)
     if consumido is not None and not allow_reuse:
         raise RetrainRefusedError(
-            f"O alerta {alert_run} já foi consumido pelo challenger v{consumido}. "
-            "Um segundo retreino sobre o mesmo alerta exige "
+            f"O alerta {alert_run} já foi consumido pelo challenger v{consumido} "
+            "(por ele ou por outro alerta do mesmo lote, mesmo batch_sha256). Um "
+            "segundo retreino sobre o mesmo alerta exige "
             "`--allow-reuse --reason <motivo>`."
         )
-    return _trigger_from_run(run, reused=consumido is not None, reason=reason)
+    do_alerta = run.data.tags.get("model_version")
+    if do_alerta != do_champion and not allow_reuse:
+        raise RetrainRefusedError(
+            f"O alerta {alert_run} foi emitido contra o modelo {do_alerta}, não contra "
+            f"o champion atual ({do_champion}): o champion atual não tem esse alerta "
+            "CRÍTICO. Retreinar mesmo assim exige `--allow-reuse --reason <motivo>`; "
+            "ou rode `make demo-drift` para avaliar o champion atual."
+        )
+    reused = consumido is not None or do_alerta != do_champion
+    return _trigger_from_run(run, reused=reused, reason=reason)
 
 
 # MARK: retreino
@@ -494,7 +534,10 @@ def run_retrain(run: StageRun, gatilho: RetrainTrigger) -> RetrainResult:
                 "trigger": gatilho.trigger,
                 "champion_version": str(int(champion.version)),
                 **(
-                    {"alert_run_id": gatilho.alert_run_id}
+                    {
+                        "alert_run_id": gatilho.alert_run_id,
+                        "alert_model_version": str(gatilho.alert_model_version),
+                    }
                     if gatilho.alert_run_id
                     else {}
                 ),
@@ -649,7 +692,10 @@ def _parser() -> CliParser:
     parser.add_argument(
         "--allow-reuse",
         action="store_true",
-        help="aceita um alerta já consumido (exige --alert-run e --reason)",
+        help=(
+            "aceita um alerta já consumido ou emitido contra outro champion (exige "
+            "--alert-run e --reason)"
+        ),
     )
     parser.add_argument(
         "--reason", default=None, help="motivo da exceção (gravado no run)"
