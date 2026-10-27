@@ -5,6 +5,7 @@ LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
 Data       | Autor          | Descrição
 --------------------------------------------------------------------------------
 2026-10-25 | Eduardo Batista | Criação da ADR 0006 detalhando MLflow e DVC, ambos locais, na Etapa 3.
+2026-10-27 | Eduardo Batista | Status para Implementada após a execução real do núcleo da Etapa 3 (pipeline_run_id 20261027T103457Z).
 ================================================================================
 -->
 
@@ -12,7 +13,7 @@ Data       | Autor          | Descrição
 
 | Metadado | Detalhe |
 | :--- | :--- |
-| **Status** | **Proposta** (2026-10-25) |
+| **Status** | **Implementada** (2026-10-27) |
 | **Decisores** | Eduardo Batista |
 | **Tags** | `[mlops]`, `[observability]`, `[data-versioning]`, `[licensing]` |
 | **Impacto Sistêmico** | Alto (rastreio de experimentos e versionamento de dados/modelos da Etapa 3) |
@@ -82,3 +83,10 @@ O usuário decidiu adotar **MLflow** (rastreio de execuções, métricas e artef
 - Quais estágios entram no `dvc.yaml`.
 - O que é logado no MLflow (métricas de saúde por lote, PSI, queda de AUC, alertas) e como `run_id` se relaciona com o run do MLflow.
 - A política de alerta (`min_psi=PSI_MODERATE` e `performance.degraded`).
+
+### Implementação (2026-10-27)
+Os três pontos acima foram fechados na [spec da Etapa 3](../ai/specs/2026-10-25-etapa3-observabilidade-design.md) (§4.1 a §4.5).
+- O `dvc.yaml` tem `prepare → train → contract_demo → drift_demo`. O `dvc.lock` é versionado, e o remoto local só existe em `.dvc/config.local`.
+- O MLflow usa `mlflow.db` e `mlartifacts/`, fora do git. A tag `pipeline_run_id` liga cada run de estágio ao log JSONL anexado.
+- Na execução real (`pipeline_run_id` `20261027T103457Z`), t0 deu `OK`, t1 `ATENCAO` e t2 `CRITICO`.
+- Limitação conhecida: o champion servido (`models/champion/`) fica fora dos `outs`. Por isso o `dvc repro` não percebe uma promoção nem um rollback (Fase B, ADR-0007 ainda a criar).

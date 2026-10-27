@@ -19,8 +19,22 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
   - métricas em `src/models/metrics.py` e `read_batch` em `src/validation/io.py`, desfazendo dois acoplamentos entre camadas; contrato `layers` (drift → models → validation) no import-linter;
   - todo evento de log carrega `run_id` (ou `PIPELINE_RUN_ID`); `drift_detected` registra `model_version` e `min_psi`; o log JSONL rotaciona (10 MB × 5);
   - workflow de CI (`.github/workflows/ci.yml`: `uv sync --locked`, `make lint`, `make test-cov`) e Dependabot para `github-actions`.
+- Núcleo da Etapa 3, observabilidade com MLflow e DVC locais ([ADR-0006](docs/adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md), [spec](docs/ai/specs/2026-10-25-etapa3-observabilidade-design.md)):
+  - camada `src/monitoring` (contrato `monitoring → drift → models → validation` no import-linter; `mlflow` e `dvc` só nela) com MLflow em SQLite (`mlflow.db`) e artefatos em `mlartifacts/`, ambos locais e fora do git;
+  - estágios rastreados `prepare`, `train`, `contract_demo` e `drift_demo` (`python -m src.monitoring.stage <estágio>`), cada um com um run de estágio (`stage_success`, `stage_duration_s`, `rows_processed`, `rows_rejected`, `alerts_failure_count`, `alerts_drift_count`, `peak_memory_mb`, tag `pipeline_run_id`) e o log JSONL do `run_id` anexado;
+  - um run de lote filho por lote avaliado, com nível de alerta (`OK`, `ATENCAO`, `CRITICO`, `BLOQUEADO`), motivos, ação do runbook, PSI por coluna, PSI do score, ROC-AUC, queda de AUC, `label_shift` e os relatórios do Evidently e do contrato;
+  - regra pura de nível de alerta (`src/monitoring/alerts.py`) e PSI do score contra a distribuição do teste do treino (`score_reference` no `baseline_metadata.json`);
+  - Model Registry com o alias `champion` (bootstrap no primeiro `train`) e o champion servido em `models/champion/`, conferido por sha256;
+  - comando `monitor` para avaliar um lote (códigos 0, 2, 3 e 1);
+  - alvos `make pipeline`, `make monitor BATCH=`, `make demo-drift`, `make tracking-ui` (porta 5001) e `make repro`;
+  - `dvc.yaml` com os 4 estágios, `outs` arquivo por arquivo (`cache: false` em `models/` e `reports/`), o CSV bruto como `deps` do `prepare` e o `dvc.lock` versionado;
+  - teste de aceite real (`tests/integration/test_acceptance_real.py`), que só roda na máquina com o dataset e o `mlflow.db`. Na execução real de 2026-10-27 (`pipeline_run_id` `20261027T103457Z`), t0 deu `OK`, t1 `ATENCAO` e t2 `CRITICO`.
 
 ### Alterado
+- `make data`, `make train`, `make contract-demo` e `make demo-drift` (e os apelidos `drift-demo`, `etapa1` e `etapa2`) passam a chamar `src.monitoring.stage`, com rastreamento no MLflow. `MONITORING_TRACKING=off` desliga o rastreamento.
+- `DriftResult.concept_drift` renomeado para `label_shift`. O JSON mantém `concept_drift` como alias obsoleto até a Etapa 4, e a ADR-0005 (item 4) ganhou uma emenda.
+- ADR-0006 passa a `Implementada` (2026-10-27).
+- `models/` e `reports/` regenerados pela execução real da Etapa 3 em 2026-10-27, agora com `score_reference` no metadata e `label_shift` nos relatórios de drift. Os números do baseline e da demo não mudaram.
 - Piso do Evidently em `pyproject.toml` corrigido para `>=0.7` (a API usada, `from evidently import Report`, não existe antes).
 - Meta de cobertura do repositório (`fail_under`) elevada de 68 para 80; cobertura atual ~95%.
 - Sumário de drift passa a rotular o teste sobre `target` como *label shift* e a explicar a limitação (não mede mudança em P(y|X)).

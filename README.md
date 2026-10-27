@@ -78,7 +78,10 @@ Este projeto constrói a camada que impede essa degradação de passar desperceb
 │   ├── data/                           # download + construção dos datasets
 │   ├── validation/                     # contrato Pandera, gate, relatórios, demo
 │   ├── models/                         # features, treino, predição
-│   └── drift/                          # simulação + detecção de drift (Evidently)
+│   ├── drift/                          # simulação + detecção de drift (Evidently)
+│   └── monitoring/                     # Etapa 3: estágios rastreados, alerta, MLflow, Registry, monitor
+├── dvc.yaml / dvc.lock                 # Etapa 3: pipeline reprodutível (só hashes no git)
+├── mlflow.db / mlartifacts/            # NÃO versionados: MLflow local (gerados por `make pipeline`)
 └── tests/                              # pytest com dados sintéticos (sem Kaggle)
 ```
 
@@ -102,16 +105,16 @@ uv sync
 uv run python -m src.data.download
 #    b) Manual: baixe application_train.csv na aba "Data" da competição
 #       e coloque em data/raw/application_train.csv
+#    Num git worktree, não copie o CSV: ligue o arquivo do checkout principal
+#    por link simbólico (data/raw/ é ignorado pelo git; o Kaggle proíbe
+#    redistribuir o dataset, então ele nunca é versionado):
+#       ln -s <checkout-principal>/data/raw/application_train.csv data/raw/application_train.csv
 
-# 3. Etapa 1 completa
-uv run python -m src.data.prepare        # Referência + Produção t0
-uv run python -m src.models.train        # baseline (passa pelo gate antes)
-uv run python -m src.validation.demo     # contrato bloqueando lote inválido
+# 3. Pipeline completo das Etapas 1 a 3, rastreado no MLflow local
+make pipeline                            # prepare -> train -> contract_demo -> drift_demo
+make tracking-ui                         # MLflow UI em http://127.0.0.1:5001
 
-# 4. Etapa 2 completa (exige o passo 3)
-uv run python -m src.drift.demo          # simular drift + pontuar + Evidently
-
-# 5. Testes
+# 4. Testes
 uv run pytest
 ```
 
@@ -119,18 +122,24 @@ uv run pytest
 | ------------------------------------- | -------------------------------------------------------------------- |
 | `make setup`                        | `uv sync`                                                          |
 | `make download-data`                | `uv run python -m src.data.download`                               |
-| `make data`                         | `uv run python -m src.data.prepare`                                |
-| `make train`                        | `uv run python -m src.models.train`                                |
-| `make contract-demo`                | `uv run python -m src.validation.demo`                             |
+| `make pipeline`                     | os quatro estágios abaixo, em ordem, com o mesmo `PIPELINE_RUN_ID` exportado |
+| `make data`                         | `uv run python -m src.monitoring.stage prepare`                    |
+| `make train`                        | `uv run python -m src.monitoring.stage train`                      |
+| `make contract-demo`                | `uv run python -m src.monitoring.stage contract_demo`              |
+| `make demo-drift` / `make drift-demo` / `make etapa2` | `uv run python -m src.monitoring.stage drift_demo` |
+| `make etapa1`                       | `make data train contract-demo`                                    |
+| `make monitor BATCH=arq.parquet`    | `uv run python -m src.monitoring.monitor --batch arq.parquet [--baseline-auc 0.75]` |
+| `make tracking-ui`                  | `uv run mlflow ui --backend-store-uri sqlite:///<caminho absoluto>/mlflow.db --port 5001` |
+| `make repro`                        | `uv run dvc repro`                                                 |
 | `make validate INPUT=arq.csv`       | `uv run python -m src.validation.validate --input arq.csv`         |
 | `make predict INPUT=arq.csv`        | `uv run python -m src.models.predict --input arq.csv`              |
-| `make etapa1`                       | os três comandos do passo 3                                         |
 | `make simulate-drift`               | `uv run python -m src.drift.simulate`                              |
 | `make detect-drift CURRENT=...`     | `uv run python -m src.drift.detect --current ... [--min-psi 0.10]` |
-| `make drift-demo` / `make etapa2` | `uv run python -m src.drift.demo`                                  |
 | `make test`                         | `uv run pytest`                                                    |
 
-Qualidade: `make lint` (Ruff + import-linter) e `make test-cov` (cobertura ≥ 80%, hoje ~95%). Os testes usam dados sintéticos e rodam o pipeline inteiro em sandbox, sem Kaggle.
+Os módulos das Etapas 1 e 2 continuam executáveis sem rastreamento (`uv run python -m src.data.prepare`, `src.models.train`, `src.validation.demo`, `src.drift.demo`). Os estágios de `src.monitoring.stage` envolvem esses mesmos módulos e registram tudo no MLflow; `MONITORING_TRACKING=off` desliga o registro.
+
+Qualidade: `make lint` (Ruff + import-linter) e `make test-cov` (cobertura ≥ 80%, hoje ~97%). Os testes usam dados sintéticos e rodam o pipeline inteiro em sandbox, sem Kaggle e sem tocar no `mlflow.db` real. A exceção é o teste de aceite real (`tests/integration/test_acceptance_real.py`). Ele só lê o `mlflow.db` da raiz e pula quando falta o banco ou o CSV, ou quando roda em CI.
 
 Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e as dependências estão travadas no `uv.lock`.
 
@@ -190,7 +199,83 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 
 ## Etapa 3 — Observabilidade de Pipelines e Modelos
 
-> _Em construção._ Os eventos de validação, treino e predição já são gravados em formato estruturado em `logs/pipeline.jsonl` (`src/logging_utils.py`), prontos para centralização.
+> Foco: um lugar único para ver a saúde do pipeline, a estabilidade da execução e os alertas de degradação do modelo. Desenho em [`docs/ai/specs/2026-10-25-etapa3-observabilidade-design.md`](docs/ai/specs/2026-10-25-etapa3-observabilidade-design.md); decisão em [ADR-0006](docs/adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md).
+
+**Entregável: ambiente de rastreamento (MLflow) com a saúde do pipeline, a estabilidade da execução e os alertas de degradação do modelo.** A parte de retreino, promoção e rollback (§4.7 da spec) ainda não foi feita.
+
+- **MLflow local:** o banco SQLite fica em `mlflow.db` e os artefatos em `mlartifacts/`, os dois na raiz do repositório e fora do git. O experimento se chama `credit-drift-monitor`. Não há servidor remoto.
+- **Runs:** cada estágio (`prepare`, `train`, `contract_demo`, `drift_demo`) gera um run de estágio com a tag `pipeline_run_id` e o trecho do `logs/pipeline.jsonl` daquele `run_id` anexado como artefato. Cada lote avaliado gera um run filho com nível, motivos, ação, métricas e os relatórios do Evidently e do contrato.
+- **Métricas de saúde (checklist 3.3):**
+  - status: `stage_success` e a tag `stage_status`;
+  - latência: `stage_duration_s`, mais o `duration_ms` dos eventos de contrato e de detecção no log anexado;
+  - volume: `rows_processed` e `rows_rejected`;
+  - alertas: `alerts_failure_count` e `alerts_drift_count`;
+  - modelo: `roc_auc`, `auc_drop`, `approval_rate`, `default_rate_approved` e `score_psi`;
+  - estabilidade: `peak_memory_mb` e `stage_duration_s`. "Infraestrutura" aqui é o processo local: não há cluster, e essa limitação é assumida.
+- **Model Registry:** o modelo `credit-default-xgboost` recebe o alias `champion` no primeiro `train`. O modelo servido fica em `models/champion/`, conferido pelo sha256 da versão `champion`. Um `train` repetido registra uma versão nova, mas não move o alias.
+
+### Nível de alerta por lote
+
+A regra é uma função pura, em [`src/monitoring/alerts.py`](src/monitoring/alerts.py). A precedência é `BLOQUEADO` > `CRÍTICO` > `ATENÇÃO` > `OK`. Nas tags do MLflow os códigos são ASCII: `OK`, `ATENCAO`, `CRITICO` e `BLOQUEADO`.
+
+| Nível | Regra | Ação |
+| :--- | :--- | :--- |
+| `BLOQUEADO` | o contrato barrou o lote | inspecionar o relatório do contrato e a quarentena; corrigir a fonte; não pontuar |
+| `CRÍTICO` | lote rotulado com queda de ROC-AUC ≥ 0,05 frente ao t0 | tratar como concept drift: investigar e avaliar retreino com validação humana |
+| `ATENÇÃO` | alguma coluna com drift (p-valor **e** PSI ≥ 0,10, sem contar `target`) **ou** PSI do score ≥ 0,10 | investigar a coluna; um data drift sozinho não prova piora do modelo |
+| `OK` | nenhuma das anteriores | nenhuma |
+
+**Lote sem rótulo, ou com uma só classe (`single_class`):** a AUC não é avaliada (`performance_evaluated=false`), e o nível máximo é `ATENÇÃO`.
+
+**Piso de `ATENÇÃO` para anomalias:** um lote vazio (`empty_batch`), uma AUC não finita (`auc_undefined`) ou um PSI do score não finito (`score_psi_undefined`) nunca terminam `OK`. Eles sobem no mínimo a `ATENÇÃO`, com o motivo nas `alert_reasons`. É um máximo: o piso nunca rebaixa um nível maior. `no_baseline_auc` (lote rotulado sem AUC de referência) e `single_class` entram nos motivos sem piso.
+
+### Resultado real (Home Credit, seed 42, `pipeline_run_id` `20261027T103457Z`)
+
+| Lote | Nível | Motivos | ROC-AUC | Queda de AUC | PSI do score |
+| :--- | :--- | :--- | ---: | ---: | ---: |
+| t0 (`production_t0`) | `OK` | nenhum | 0,7533 | 0,0000 | 0,0003 |
+| t1 (`production_t1_data_drift`) | `ATENÇÃO` | `drift:annuity_amount`, `drift:ext_source_3`, `drift:income_total`, `score_psi>=0.10` | 0,7224 | 0,0309 | 0,1431 |
+| t2 (`production_t2_concept_drift`) | `CRÍTICO` | `auc_drop>=0.05` e os mesmos de t1 | 0,5720 | 0,1813 | 0,1431 |
+| lote inválido da demo do contrato | `BLOQUEADO` | as regras violadas (R1 a R8 e R10); `intentional_demo=true` | não avaliada | | |
+
+No estágio `contract_demo`, `alerts_failure_count` = 1 e `rows_rejected` = 508. No `drift_demo`, `alerts_drift_count` = 2.
+
+### Comandos
+
+```bash
+make pipeline                  # os 4 estágios, sempre executados, com um único PIPELINE_RUN_ID
+make tracking-ui               # MLflow UI em http://127.0.0.1:5001 (a 5000 colide com o AirPlay no macOS)
+make monitor BATCH=data/production/production_t2_concept_drift.parquet [BASELINE_AUC=0.7533]
+make demo-drift                # só o estágio drift_demo (apelidos: drift-demo, etapa2)
+make repro                     # dvc repro: roda só os estágios com mudança
+```
+
+O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC (se o lote for rotulado), nível de alerta e registro no MLflow. A AUC de referência vem do run `production_t0` do mesmo modelo no MLflow, ou de `--baseline-auc`. Um lote rotulado sem nenhuma das duas falha fechado.
+
+> **Código de saída do monitor:** o próprio monitor sai com 0 (`OK`/`ATENÇÃO`), 2 (`CRÍTICO`), 3 (`BLOQUEADO`) ou 1 (erro operacional). O `make monitor` **não repassa** esse código: o GNU make sai com 2 em qualquer falha de receita. O código real aparece só no texto (`make: *** [monitor] Error 3` e a linha `monitor: codigo de saida 3 ...`). Para usar num script, chame o módulo direto:
+>
+> ```bash
+> uv run python -m src.monitoring.monitor --batch data/production/production_t2_concept_drift.parquet
+> echo $?   # 2 (CRÍTICO)
+> ```
+
+> **Variáveis de ambiente:** `MLFLOW_TRACKING_URI` e `MLFLOW_ARTIFACT_ROOT` trocam o banco e o diretório de artefatos (o padrão é `mlflow.db` e `mlartifacts/` na raiz, com caminho absoluto). Se uma delas estiver exportada no shell, o pipeline grava em outro lugar. O teste de aceite real (`tests/integration/test_acceptance_real.py`) sempre lê o `mlflow.db` da raiz, então ele deixa de enxergar a execução ou enxerga uma antiga. Antes de rodar `make pipeline` e o aceite, confira que as duas não estão definidas. `MONITORING_TRACKING=off` desliga o rastreamento; sem ele, um MLflow indisponível derruba o estágio com mensagem clara.
+
+### DVC: reprodução local
+
+- [`dvc.yaml`](dvc.yaml) tem os estágios `prepare → train → {contract_demo, drift_demo}`. Cada estágio chama `uv run python -m src.monitoring.stage <estágio>` e declara os `outs` arquivo por arquivo.
+- `models/` e `reports/` são `outs` com `cache: false`, então continuam versionados no git. Os outs de `data/` vão para o cache do DVC, que fica fora do git.
+- O CSV bruto é `deps` do `prepare`, e o hash vai para o [`dvc.lock`](dvc.lock), que é versionado (só hashes e tamanhos). Não se usa `dvc add`.
+- `make repro` (`uv run dvc repro`) roda só os estágios com mudança. Cada estágio recebe um `PIPELINE_RUN_ID` próprio. Sem mudança, não gera runs novos. Para a demonstração completa no MLflow, use `make pipeline`. Os relatórios têm timestamp, então o `dvc.lock` e `reports/` mudam a cada rodada. Isso é esperado.
+- **Remoto local (opcional), só em `.dvc/config.local`:**
+
+  ```bash
+  uv run dvc remote add --local -d local ~/dvc-remotes/credit-drift-monitor
+  ```
+
+  A flag `--local` grava em `.dvc/config.local`, que o `.gitignore` deixa fora do repositório. O versionamento de dados fica só na máquina do usuário, para a demo: o Kaggle proíbe redistribuir o dataset, e um remoto externo (S3, Drive, SSH) seria redistribuição e exigiria credenciais (ADR-0006). Nunca faça `dvc push` para um serviço externo.
+
+> **Limitação conhecida (Fase B):** o `dvc repro` não acompanha promoção nem rollback do champion. O champion servido fica em `models/champion/`, fora dos `outs` do DVC. Por isso, uma troca de champion não marca `contract_demo` nem `drift_demo` como desatualizados, e o `dvc repro` não os reexecuta. O `make pipeline` sempre executa tudo e não tem esse problema.
 
 ## Etapa 4 — Governança, LGPD e Análise Causal
 
@@ -205,6 +290,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | [0003](docs/adrs/0003-modelo-baseline-xgboost.md)                 | Baseline XGBoost em Pipeline scikit-learn, threshold por KS         |
 | [0004](docs/adrs/0004-evidently-drift-detection.md)               | Detecção de Data/Concept Drift com Evidently                      |
 | [0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md) | PSI e queda de ROC-AUC como sinais complementares ao KS             |
+| [0006](docs/adrs/0006-mlflow-e-dvc-locais-na-maquina-do-usuario.md) | MLflow (SQLite) e DVC locais, sem remoto externo (licença Kaggle)   |
 
 ## Vídeo STAR
 

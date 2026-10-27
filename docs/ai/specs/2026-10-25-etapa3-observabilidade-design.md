@@ -101,6 +101,8 @@ Precedência: `BLOQUEADO` > `CRÍTICO` > `ATENÇÃO` > `OK`. Limiares reaproveit
 
 Lote rotulado com uma só classe (ROC-AUC indefinida) recebe o mesmo tratamento do lote sem rótulo, com o motivo `single_class`.
 
+> **Nota (2026-10-27, implementação):** há um piso de `ATENÇÃO` para anomalias. Um lote vazio (`empty_batch`), uma AUC não finita (`auc_undefined`) ou um PSI do score não finito (`score_psi_undefined`) nunca terminam `OK`: sobem no mínimo a `ATENÇÃO`, com o motivo nas `alert_reasons`. É um máximo: o piso nunca rebaixa um nível maior. `no_baseline_auc` e `single_class` entram nos motivos sem piso. Sem rótulo, ou com `single_class`, o teto continua `ATENÇÃO`. A regra está em `src/monitoring/stage.py` (`_CAUTIOUS_REASONS`, `_at_least_attention`).
+
 Sem rótulo, a AUC não é calculada: o run registra `performance_evaluated=false` e o nível máximo possível é `ATENÇÃO`, sustentado pelo PSI do score (proxy ensinado na Aula 4 de Monitoramento, p. 5: *distribuição de predições quando não há ground truth*).
 
 Resultado esperado com os dados reais da demo (seed 42): t0 `OK`; t1 `ATENÇÃO` (3 colunas, AUC 0,7224, queda < 0,05); t2 `CRÍTICO` (queda de 0,18). Este resultado é **critério de aceite** (seção 8).
