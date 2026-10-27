@@ -35,9 +35,11 @@ data/samples/*
 .dvc/config.local
 .dvc/cache
 .dvc/tmp
-# Estado local do Registry (champion servido) e saídas por lote do comando monitor
+# Estado local do Registry (champion servido) e saídas por lote dos comandos monitor e
+# retrain (relatórios do contrato; a evidência vai anexada ao run no MLflow)
 /models/champion/
 /reports/monitor/
+/reports/retrain/
 
 # Logs de execucao (as evidencias versionadas ficam em reports/)
 logs/
