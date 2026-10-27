@@ -138,6 +138,21 @@ def test_bloqueado_sem_resultado_do_contrato_e_erro_explicito():
     assert run.records == []
 
 
+def test_bloqueio_do_lote_valido_nao_e_intencional():
+    run = _RunFalso()
+    observador = stage.ContractBatchObserver(run)
+    resultado = SimpleNamespace(
+        n_rows=3, rules_violated=[{"rule": "R1"}], report_files=[]
+    )
+
+    observador(LOTE_VALIDO, "BLOQUEADO", resultado, 0)
+    observador(LOTE_INVALIDO, "BLOQUEADO", resultado, 0)
+
+    valido, invalido = run.records
+    assert valido.intentional_demo is False
+    assert invalido.intentional_demo is True
+
+
 def test_aprovado_registra_so_o_resultado_do_contrato():
     run = _RunFalso()
     observador = stage.ContractBatchObserver(run)

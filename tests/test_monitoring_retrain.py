@@ -23,7 +23,7 @@ from src import config
 from src.models import predict, train
 from src.models.features import model_input
 from src.models.train import split_reference
-from src.monitoring import monitor, registry, retrain, stage
+from src.monitoring import monitor, registry, retrain, stage, tracking
 from src.monitoring.tracking import TrackingUnavailableError
 from src.validation.gate import enforce_contract
 from tests.conftest import (
@@ -542,6 +542,29 @@ def test_retrain_contrato_falhando_aborta_antes_de_treinar(
     )
     assert "challenger" not in aliases
     assert (retrain.RETRAIN_REPORTS_DIR / f"{caminho.stem}_report.json").is_file()
+
+
+def test_retrain_falha_ao_anexar_relatorio_nao_troca_o_codigo_do_bloqueio(
+    sandbox, sem_alerta, tmp_path, monkeypatch
+):
+    invalido = _lote_producao(seed=5, degradado=True)
+    invalido.loc[invalido.index[:3], "age_years"] = 12.0
+    caminho = tmp_path / "production_t2_invalido.parquet"
+    invalido.to_parquet(caminho, index=False)
+    monkeypatch.setattr(config, "PRODUCTION_T2_FILE", caminho)
+    _sem_treino(monkeypatch)
+
+    original = tracking.StageRun.attach
+
+    def _falha(self, path, *, artifact_path=None):
+        if path.name.startswith(caminho.stem):
+            raise TrackingUnavailableError("MLflow indisponível")
+        return original(self, path, artifact_path=artifact_path)
+
+    monkeypatch.setattr(tracking.StageRun, "attach", _falha)
+
+    argv = ["--force-no-alert", "--reason", "lote inválido"]
+    assert retrain.main(argv) == retrain.EXIT_BLOCKED
 
 
 def test_retrain_champion_adulterado_aborta_antes_de_treinar(

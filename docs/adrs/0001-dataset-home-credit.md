@@ -10,8 +10,12 @@ Data       | Autor          | Descrição
 
 # ADR 0001: Dataset: Home Credit Default Risk
 
-- **Status:** aceita
-- **Etapa:** 1 (checklist 1.1)
+| Metadado | Detalhe |
+| :--- | :--- |
+| **Status** | **Implementada** (2026-10-20) |
+| **Decisores** | Eduardo Batista |
+| **Tags** | `[dataset]`, `[etapa-1]` |
+| **Etapa** | 1 (checklist 1.1) |
 
 ## Contexto
 

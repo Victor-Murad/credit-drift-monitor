@@ -356,7 +356,7 @@ def _validated(run: StageRun, df: pd.DataFrame, batch_name: str) -> pd.DataFrame
     """Contrato rotulado; os relatórios vão para o run (também quando o lote é barrado)."""
     pasta = Path(RETRAIN_REPORTS_DIR)
     try:
-        return enforce_contract(
+        validado = enforce_contract(
             df,
             batch_name=batch_name,
             stage=STAGE_NAME,
@@ -364,11 +364,26 @@ def _validated(run: StageRun, df: pd.DataFrame, batch_name: str) -> pd.DataFrame
             report_dir=pasta,
             quarantine_dir=config.QUARANTINE_DIR,
         )
-    finally:
-        for ext in ("html", "json"):
-            relatorio = pasta / f"{batch_name}_report.{ext}"
-            if relatorio.is_file():
-                run.attach(relatorio, artifact_path="reports")
+    except BaseException:
+        # Lote barrado: o erro do contrato (código 3) vale mais que uma falha ao anexar.
+        _anexar_relatorios(run, pasta, batch_name, engolir_falha=True)
+        raise
+    _anexar_relatorios(run, pasta, batch_name, engolir_falha=False)
+    return validado
+
+
+def _anexar_relatorios(
+    run: StageRun, pasta: Path, batch_name: str, *, engolir_falha: bool
+) -> None:
+    for ext in ("html", "json"):
+        relatorio = pasta / f"{batch_name}_report.{ext}"
+        if not relatorio.is_file():
+            continue
+        try:
+            run.attach(relatorio, artifact_path="reports")
+        except TrackingUnavailableError:
+            if not engolir_falha:
+                raise
 
 
 def _champion() -> tuple[ModelVersion, str]:

@@ -10,8 +10,12 @@ Data       | Autor          | Descrição
 
 # ADR 0002: Data Contracts com Pandera (e não Great Expectations)
 
-- **Status:** aceita
-- **Etapa:** 1 (checklist 1.2 e 1.4; ambiguidade #5 do checklist)
+| Metadado | Detalhe |
+| :--- | :--- |
+| **Status** | **Implementada** (2026-10-20) |
+| **Decisores** | Eduardo Batista |
+| **Tags** | `[data-contract]`, `[etapa-1]` |
+| **Etapa** | 1 (checklist 1.2 e 1.4; ambiguidade #5 do checklist) |
 
 ## Contexto
 

@@ -10,8 +10,12 @@ Data       | Autor          | Descrição
 
 # ADR 0004: Detecção de drift com Evidently
 
-- **Status:** aceita
-- **Etapa:** 2 (simulação e detecção de Data Drift e Concept Drift)
+| Metadado | Detalhe |
+| :--- | :--- |
+| **Status** | **Implementada** (2026-10-20) |
+| **Decisores** | Eduardo Batista |
+| **Tags** | `[drift]`, `[etapa-2]` |
+| **Etapa** | 2 (simulação e detecção de Data Drift e Concept Drift) |
 
 ## Contexto
 

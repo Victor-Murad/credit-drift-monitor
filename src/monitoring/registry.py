@@ -681,6 +681,22 @@ def _mark_rolled_back(version: int) -> None:
     )
 
 
+def _unmark_rolled_back(version: int) -> None:
+    """Desfaz a marca, sem esconder o erro original se o próprio desfazer falhar."""
+    try:
+        with tracking.tracking_errors("Falha ao desmarcar a versão no Model Registry"):
+            tracking.client().delete_model_version_tag(
+                config.REGISTERED_MODEL_NAME, str(version), ROLLED_BACK_TAG
+            )
+    except TrackingUnavailableError:
+        log_event(
+            logger,
+            "model_version_unmark_failed",
+            model_name=config.REGISTERED_MODEL_NAME,
+            version=int(version),
+        )
+
+
 def rollback_alias() -> int:
     """Devolve `champion` à versão `previous`, consome o `previous` e devolve a versão.
 
@@ -703,9 +719,16 @@ def rollback_alias() -> int:
         )
     versao = int(anterior.version)
     atual = get_alias_version(CHAMPION_ALIAS)
-    if atual is not None and int(atual.version) != versao:
+    marcada = atual is not None and int(atual.version) != versao
+    if marcada:
         _mark_rolled_back(int(atual.version))
-    set_alias(CHAMPION_ALIAS, versao)
+    try:
+        set_alias(CHAMPION_ALIAS, versao)
+    except TrackingUnavailableError:
+        # O alias não se moveu: a versão atual continua champion e não pode ficar marcada.
+        if marcada:
+            _unmark_rolled_back(int(atual.version))
+        raise
     delete_alias(PREVIOUS_ALIAS)
     return versao
 

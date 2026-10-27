@@ -520,7 +520,9 @@ class ContractBatchObserver:
                     "sem as regras violadas não há motivo a registrar."
                 )
             decision = blocked_decision(result)
-            n_rows, rejected, intentional = result.n_rows, result.n_rows, True
+            # Só o lote inválido da demo é bloqueio intencional; um válido barrado é falha real.
+            intentional = Path(contract_demo.INVALID_BATCH_FILE).stem == batch_name
+            n_rows, rejected = result.n_rows, result.n_rows
         else:
             raise StageFailedError(
                 f"Lote {batch_name} com status inesperado {status!r} "

@@ -260,7 +260,7 @@ make repro                     # dvc repro: roda só os estágios com mudança
 
 O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC (se o lote for rotulado), nível de alerta e registro no MLflow. A AUC de referência vem do run `production_t0` do mesmo modelo no MLflow, ou de `--baseline-auc`. Um lote rotulado sem nenhuma das duas falha fechado.
 
-> **Código de saída do monitor:** o próprio monitor sai com 0 (`OK`/`ATENÇÃO`), 2 (`CRÍTICO`), 3 (`BLOQUEADO`) ou 1 (erro operacional). O `make monitor` **não repassa** esse código: o GNU make sai com 2 em qualquer falha de receita. O código real aparece só no texto (`make: *** [monitor] Error 3` e a linha `monitor: codigo de saida 3 ...`). O mesmo vale para `make retrain`, `make promote` e `make rollback`. Para usar num script, chame o módulo direto:
+> **Código de saída do monitor:** o próprio monitor sai com 0 (`OK`/`ATENÇÃO`), 2 (`CRÍTICO`), 3 (`BLOQUEADO`) ou 1 (erro operacional). O `make monitor` **não repassa** esse código: o GNU make sai com 2 em qualquer falha de receita. O código real aparece só no texto (`make: *** [monitor] Error 3` e a linha `monitor: codigo de saida 3 ...`). O mesmo vale para `make retrain`, `make promote` e `make rollback`. O código real do módulo aparece em `Error N` e na linha `codigo de saida`; o do `make` é sempre 2, inclusive no erro de `BATCH` ausente. Para usar num script, chame o módulo direto:
 >
 > ```bash
 > uv run python -m src.monitoring.monitor --batch data/production/production_t2_concept_drift.parquet

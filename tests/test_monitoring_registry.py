@@ -660,6 +660,24 @@ def test_rollback_devolve_previous_e_falha_sem_previous(tracking_env, tmp_path):
     assert _alias("champion") == 1
 
 
+def test_rollback_com_alias_falhando_desmarca_a_versao_atual(
+    tracking_env, tmp_path, monkeypatch
+):
+    _tres_versoes(tmp_path)
+    promote_alias(1)
+    promote_alias(2)
+
+    def _falha(alias, versao):
+        raise TrackingUnavailableError("MLflow indisponível")
+
+    monkeypatch.setattr(registry, "set_alias", _falha)
+    with pytest.raises(TrackingUnavailableError):
+        rollback_alias()
+
+    assert _alias("champion") == 2
+    assert "rolled_back" not in require_version(2).tags
+
+
 def test_delete_alias_remove_e_ignora_alias_ausente(tracking_env, tmp_path):
     _tres_versoes(tmp_path)
     set_alias("previous", 1)

@@ -10,8 +10,12 @@ Data       | Autor          | Descrição
 
 # ADR 0003: Modelo baseline: XGBoost em Pipeline scikit-learn
 
-- **Status:** aceita
-- **Etapa:** 1 (checklist 1.1 e 1.3)
+| Metadado | Detalhe |
+| :--- | :--- |
+| **Status** | **Implementada** (2026-10-20) |
+| **Decisores** | Eduardo Batista |
+| **Tags** | `[modelo]`, `[etapa-1]` |
+| **Etapa** | 1 (checklist 1.1 e 1.3) |
 
 ## Contexto
 
