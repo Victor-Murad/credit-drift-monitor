@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import joblib
 import mlflow
 import pytest
+from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 from sklearn.linear_model import LogisticRegression
@@ -18,10 +20,18 @@ from src import config
 from src.models.integrity import ModelIntegrityError, verify_model_integrity
 from src.monitoring import registry
 from src.monitoring.registry import (
+    RegistryStateError,
     bootstrap_champion,
     export_champion,
+    find_unconsumed_critical_run,
     get_alias_version,
+    log_audit_run,
+    mark_alert_consumed,
+    promote_alias,
+    register_challenger,
     register_model_version,
+    require_critical_run,
+    rollback_alias,
     set_alias,
 )
 from src.monitoring.tracking import TrackingUnavailableError, configure_tracking
@@ -31,11 +41,20 @@ _SEM_HASH = object()
 
 
 def _registrar(
-    tmp_path: Path, nome: str, seed: int = 0, metadata: object = None
+    tmp_path: Path,
+    nome: str,
+    seed: int = 0,
+    metadata: object = None,
+    *,
+    registrar=register_model_version,
+    model_version: str = "baseline-v1",
+    tags: dict[str, str] | None = None,
 ) -> tuple[int, str]:
     """Treina um modelo minúsculo, grava bundle + metadata e registra uma versão.
 
-    `metadata=_SEM_HASH` grava um metadata sem `artifact.sha256`.
+    `metadata=_SEM_HASH` grava um metadata sem `artifact.sha256`. `registrar` troca
+    a função de registro (ex.: `register_challenger`); `tags` substitui as padrão,
+    com `{sha}` trocado pelo sha256 do bundle.
     """
     df = make_valid_df(n=60, seed=seed)
     X = df[["ext_source_2", "age_years"]]
@@ -43,23 +62,27 @@ def _registrar(
     pasta = tmp_path / nome
     pasta.mkdir()
     bundle = pasta / "modelo.joblib"
-    joblib.dump({"pipeline": pipeline, "model_version": "baseline-v1"}, bundle)
+    joblib.dump({"pipeline": pipeline, "model_version": model_version}, bundle)
     sha = sha256_de(bundle)
     conteudo = {"outro": 1} if metadata is _SEM_HASH else {"artifact": {"sha256": sha}}
     arquivo_metadata = pasta / "meta.json"
     arquivo_metadata.write_text(json.dumps(conteudo), encoding="utf-8")
     exemplo = X.head(3)
     assinatura = infer_signature(exemplo, pipeline.predict_proba(exemplo))
+    if tags is None:
+        tags = {"origin": "baseline", "model_sha256": sha}
+    else:
+        tags = {chave: valor.replace("{sha}", sha) for chave, valor in tags.items()}
     configure_tracking()
     with mlflow.start_run(run_name=nome, tags={"run_type": "training"}) as run:
-        versao = register_model_version(
+        versao = registrar(
             run_id=run.info.run_id,
             pipeline=pipeline,
             signature=assinatura,
             input_example=exemplo,
             bundle_path=bundle,
             metadata_path=arquivo_metadata,
-            tags={"origin": "baseline", "model_sha256": sha},
+            tags=tags,
         )
     return versao, sha
 
@@ -290,3 +313,402 @@ def test_requisito_ausente_falha_com_mensagem(tracking_env, tmp_path, monkeypatc
     )
     with pytest.raises(TrackingUnavailableError, match="pacote-que-nao-existe"):
         _registrar(tmp_path, "a")
+
+
+# MARK: challenger
+
+
+def _tags_challenger(lote: str = "run-do-lote") -> dict[str, str]:
+    return {
+        "model_sha256": "{sha}",
+        "reference_sha256": "f" * 64,
+        "bundle_model_version": "retrain-{sha}",
+        "alert_run_id": lote,
+        "alert_batch_name": "production_t2",
+    }
+
+
+def _challenger(tmp_path: Path, nome: str, seed: int, **extra) -> tuple[int, str]:
+    return _registrar(
+        tmp_path,
+        nome,
+        seed=seed,
+        registrar=register_challenger,
+        model_version=f"retrain-{nome}",
+        tags=extra.pop("tags", None) or _tags_challenger(),
+        **extra,
+    )
+
+
+def test_register_challenger_move_alias_e_grava_tags(tracking_env, tmp_path):
+    _registrar(tmp_path, "baseline")
+    set_alias("champion", 1)
+    v2, _ = _challenger(tmp_path, "c1", seed=1)
+    assert int(get_alias_version("challenger").version) == v2 == 2
+    v3, sha3 = _challenger(tmp_path, "c2", seed=2)
+    # O alias se move para o challenger novo; o champion não é tocado.
+    assert int(get_alias_version("challenger").version) == v3 == 3
+    assert int(get_alias_version("champion").version) == 1
+    tags = get_alias_version("challenger").tags
+    assert tags["origin"] == "retrain"
+    assert tags["model_sha256"] == sha3
+    assert tags["bundle_model_version"] == f"retrain-{sha3}"
+    assert tags["reference_sha256"] == "f" * 64
+    assert tags["alert_run_id"] == "run-do-lote"
+    assert tags["alert_batch_name"] == "production_t2"
+
+
+@pytest.mark.parametrize(
+    ("tags", "erro"),
+    [
+        ({"bundle_model_version": "retrain-x"}, "model_sha256"),
+        ({"model_sha256": "{sha}"}, "bundle_model_version"),
+        (
+            {"model_sha256": "{sha}", "bundle_model_version": "baseline-v1"},
+            "baseline-v1",
+        ),
+        ({"model_sha256": " ", "bundle_model_version": "retrain-x"}, "model_sha256"),
+    ],
+)
+def test_register_challenger_recusa_tags_invalidas_sem_criar_versao(
+    tracking_env, tmp_path, tags, erro
+):
+    with pytest.raises(ValueError, match=erro):
+        _challenger(tmp_path, "c1", seed=1, tags=tags)
+    assert get_alias_version("challenger") is None
+    modelos = cliente_mlflow(tracking_env).search_registered_models()
+    assert modelos == []
+
+
+# MARK: alerta crítico e consumo
+
+
+def _run_de_lote(
+    cliente, experimento: str, inicio: int, status: str = "FINISHED", **tags
+) -> str:
+    base = {"run_type": "batch", "alert_level": "CRITICO", "batch_name": "t2"}
+    base.update(tags)
+    run = cliente.create_run(experimento, start_time=inicio, tags=base)
+    cliente.set_terminated(run.info.run_id, status)
+    return run.info.run_id
+
+
+def test_find_unconsumed_critical_ignora_consumidos_e_nao_criticos(
+    tracking_env, monkeypatch
+):
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    _run_de_lote(cliente, experimento, 1_000, alert_level="OK")
+    _run_de_lote(cliente, experimento, 2_000, alert_level="ATENCAO")
+    _run_de_lote(cliente, experimento, 3_000, alert_level="BLOQUEADO")
+    antigo = _run_de_lote(cliente, experimento, 4_000)
+    esperado = _run_de_lote(cliente, experimento, 5_000)
+    _run_de_lote(cliente, experimento, 6_000, retrain_consumed="2")
+    _run_de_lote(cliente, experimento, 7_000, run_type="stage")
+    _run_de_lote(cliente, experimento, 8_000, status="FAILED")
+
+    filtros: list[str] = []
+    original = MlflowClient.search_runs
+
+    def _espiao(self, *args, **kwargs):
+        filtros.append(kwargs.get("filter_string", ""))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(MlflowClient, "search_runs", _espiao)
+    encontrado = find_unconsumed_critical_run()
+    assert encontrado is not None
+    assert encontrado.info.run_id == esperado
+    # O filtro de `retrain_consumed` é feito no cliente (tag ausente na maioria).
+    assert filtros
+    assert all("retrain_consumed" not in filtro for filtro in filtros)
+
+    mark_alert_consumed(esperado, 3)
+    assert cliente.get_run(esperado).data.tags["retrain_consumed"] == "3"
+    assert find_unconsumed_critical_run().info.run_id == antigo
+    mark_alert_consumed(antigo, 3)
+    assert find_unconsumed_critical_run() is None
+
+
+def test_find_unconsumed_critical_desempata_pelo_run_id(tracking_env):
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    ids = [_run_de_lote(cliente, experimento, 5_000) for _ in range(3)]
+    assert find_unconsumed_critical_run().info.run_id == max(ids)
+
+
+def test_find_unconsumed_critical_pagina_a_busca(tracking_env, monkeypatch):
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    novo = _run_de_lote(cliente, experimento, 9_000)
+    for inicio in range(1_000, 4_000, 1_000):
+        _run_de_lote(cliente, experimento, inicio)
+    monkeypatch.setattr(registry, "SEARCH_PAGE_SIZE", 2)
+    assert find_unconsumed_critical_run().info.run_id == novo
+
+
+def test_find_unconsumed_critical_sem_experimento_ou_sem_alerta(tracking_env):
+    assert find_unconsumed_critical_run() is None
+    experimento = configure_tracking()
+    _run_de_lote(cliente_mlflow(tracking_env), experimento, 1_000, alert_level="OK")
+    assert find_unconsumed_critical_run() is None
+
+
+def test_require_critical_run_recusa_inexistente_e_nao_critico(tracking_env):
+    experimento = configure_tracking()
+    cliente = cliente_mlflow(tracking_env)
+    critico = _run_de_lote(cliente, experimento, 1_000)
+    atencao = _run_de_lote(cliente, experimento, 2_000, alert_level="ATENCAO")
+    estagio = _run_de_lote(cliente, experimento, 3_000, run_type="stage")
+    assert require_critical_run(critico).info.run_id == critico
+    with pytest.raises(ValueError, match="ATENCAO"):
+        require_critical_run(atencao)
+    with pytest.raises(ValueError, match="não é um run de lote"):
+        require_critical_run(estagio)
+    with pytest.raises(ValueError, match="não encontrado"):
+        require_critical_run("0" * 32)
+    # Id malformado é "não encontrado", não "MLflow indisponível".
+    with pytest.raises(ValueError, match="não encontrado"):
+        require_critical_run("x' or 1=1 --")
+    # Marcar consumo exige o mesmo: um run que não é alerta crítico fica intocado.
+    with pytest.raises(ValueError, match="ATENCAO"):
+        mark_alert_consumed(atencao, 2)
+    assert "retrain_consumed" not in cliente.get_run(atencao).data.tags
+
+
+def test_require_critical_run_recusa_lote_cujo_run_falhou(tracking_env):
+    experimento = configure_tracking()
+    falho = _run_de_lote(cliente_mlflow(tracking_env), experimento, 1_000, "FAILED")
+    with pytest.raises(ValueError, match="FAILED"):
+        require_critical_run(falho)
+
+
+def test_consultas_com_outro_erro_do_mlflow_saem_redigidas(tracking_env, monkeypatch):
+    """Só "não existe" vira erro de domínio; o resto é MLflow indisponível."""
+
+    def _falhar(*args, **kwargs):
+        raise MlflowException("API request to http://admin:segredo123@host failed")
+
+    configure_tracking()
+    monkeypatch.setattr(MlflowClient, "get_run", _falhar)
+    monkeypatch.setattr(MlflowClient, "get_model_version", _falhar)
+    for operacao in (lambda: require_critical_run("0" * 32), lambda: promote_alias(1)):
+        with pytest.raises(TrackingUnavailableError) as erro:
+            operacao()
+        assert "segredo123" not in str(erro.value)
+
+
+# MARK: promoção e rollback dos aliases
+
+
+def _tres_versoes(tmp_path: Path) -> None:
+    for seed, nome in enumerate(("a", "b", "c")):
+        _registrar(tmp_path, nome, seed=seed)
+
+
+def _alias(nome: str) -> int | None:
+    versao = get_alias_version(nome)
+    return None if versao is None else int(versao.version)
+
+
+def test_promote_move_aliases_e_define_previous(tracking_env, tmp_path):
+    _tres_versoes(tmp_path)
+    # Sem champion: só dá o alias, sem previous.
+    promote_alias(1)
+    assert (_alias("champion"), _alias("previous")) == (1, None)
+    promote_alias(2)
+    assert (_alias("champion"), _alias("previous")) == (2, 1)
+    # Promover a versão que já é champion não apaga nem move o previous.
+    promote_alias(2)
+    assert (_alias("champion"), _alias("previous")) == (2, 1)
+    promote_alias(3)
+    assert (_alias("champion"), _alias("previous")) == (3, 2)
+
+
+def test_promote_versao_inexistente_falha_sem_mexer_nos_aliases(tracking_env, tmp_path):
+    _tres_versoes(tmp_path)
+    promote_alias(1)
+    with pytest.raises(RegistryStateError, match="Versão 99"):
+        promote_alias(99)
+    assert (_alias("champion"), _alias("previous")) == (1, None)
+
+
+def test_promote_sem_modelo_registrado_falha_com_erro_de_dominio(tracking_env):
+    configure_tracking()
+    with pytest.raises(RegistryStateError, match="não existe"):
+        promote_alias(1)
+
+
+def test_rollback_devolve_previous_e_falha_sem_previous(tracking_env, tmp_path):
+    _tres_versoes(tmp_path)
+    promote_alias(1)
+    with pytest.raises(RegistryStateError, match="previous"):
+        rollback_alias()
+    assert _alias("champion") == 1
+    promote_alias(2)
+    assert rollback_alias() == 1
+    # O previous é consumido: um segundo rollback não re-promove a versão revertida.
+    assert (_alias("champion"), _alias("previous")) == (1, None)
+    with pytest.raises(RegistryStateError, match="previous"):
+        rollback_alias()
+    assert _alias("champion") == 1
+
+
+def test_rollback_sem_modelo_registrado_falha_com_erro_de_dominio(tracking_env):
+    configure_tracking()
+    with pytest.raises(RegistryStateError, match="previous"):
+        rollback_alias()
+
+
+def test_alias_falha_do_mlflow_nao_vaza_credencial(tracking_env, monkeypatch):
+    def _falhar(*args, **kwargs):
+        raise MlflowException("API request to http://admin:segredo123@host failed")
+
+    monkeypatch.setattr(MlflowClient, "search_registered_models", _falhar)
+    for operacao in (lambda: promote_alias(1), rollback_alias):
+        with pytest.raises(TrackingUnavailableError) as erro:
+            operacao()
+        assert "segredo123" not in str(erro.value)
+
+
+# MARK: auditoria
+
+
+_AGORA = datetime(2026, 10, 27, 9, 30, 15, tzinfo=timezone(timedelta(hours=-3)))
+
+
+def test_audit_run_registra_quem_quando_por_que(tracking_env, monkeypatch):
+    monkeypatch.setattr(registry.getpass, "getuser", lambda: "analista")
+    run_id = log_audit_run(
+        action="promote",
+        version=2,
+        reason="Ganho de 0,03 no holdout de t2",
+        details={
+            "auc_holdout": {"champion": 0.57, "challenger": 0.60},
+            "eligible": True,
+        },
+        clock=lambda: _AGORA,
+    )
+    run = cliente_mlflow(tracking_env).get_run(run_id)
+    tags = run.data.tags
+    assert run.info.status == "FINISHED"
+    assert tags["run_type"] == "audit"
+    assert tags["action"] == "promote"
+    assert tags["version"] == "2"
+    assert tags["model_name"] == config.REGISTERED_MODEL_NAME
+    assert tags["reason"] == "Ganho de 0,03 no holdout de t2"
+    assert tags["operator"] == "analista"
+    # Hora em UTC, ISO 8601, mesmo que o relógio venha em outro fuso.
+    assert tags["timestamp_utc"] == "2026-10-27T12:30:15+00:00"
+    assert json.loads(tags["details"]) == {
+        "auc_holdout": {"champion": 0.57, "challenger": 0.60},
+        "eligible": True,
+    }
+
+    explicito = log_audit_run(
+        action="rollback",
+        version=1,
+        reason="Regressão observada",
+        operator="revisora",
+        details={},
+        clock=lambda: _AGORA,
+    )
+    assert cliente_mlflow(tracking_env).get_run(explicito).data.tags["operator"] == (
+        "revisora"
+    )
+
+
+def test_audit_run_nao_vaza_segredo(tracking_env):
+    run_id = log_audit_run(
+        action="promote",
+        version=2,
+        reason="Override pedido em http://admin:segredo123@host/painel",
+        operator="analista",
+        details={
+            "tracking_uri": "postgresql://user:segredo456@db:5432/mlflow",
+            "api_token": "tok-segredo789",
+            "aninhado": {"Password": "segredo000", "lista": ["https://u:segredo111@h"]},
+        },
+    )
+    tags = cliente_mlflow(tracking_env).get_run(run_id).data.tags
+    texto = json.dumps(tags)
+    for segredo in (
+        "segredo123",
+        "segredo456",
+        "segredo789",
+        "segredo000",
+        "segredo111",
+    ):
+        assert segredo not in texto
+    detalhes = json.loads(tags["details"])
+    assert detalhes["tracking_uri"] == "postgresql://***@db:5432/mlflow"
+    assert detalhes["api_token"] == "***"
+    assert "http://***@host/painel" in tags["reason"]
+
+
+@pytest.mark.parametrize(
+    ("argumentos", "erro"),
+    [
+        ({"reason": ""}, "motivo"),
+        ({"reason": "   "}, "motivo"),
+        ({"action": "apagar"}, "apagar"),
+        ({"details": {"x": object()}}, "JSON"),
+        ({"details": {"x": "a" * 9000}}, "details"),
+        ({"clock": lambda: datetime(2026, 10, 27, 9, 0)}, "fuso"),
+    ],
+)
+def test_audit_run_recusa_entrada_invalida_sem_criar_run(
+    tracking_env, argumentos, erro
+):
+    padrao = {
+        "action": "promote",
+        "version": 2,
+        "reason": "motivo válido",
+        "operator": "analista",
+        "details": {},
+    }
+    with pytest.raises(ValueError, match=erro):
+        log_audit_run(**{**padrao, **argumentos})
+    experimento = configure_tracking()
+    assert cliente_mlflow(tracking_env).search_runs([experimento]) == []
+
+
+def test_audit_run_grava_float_nao_finito_como_texto(tracking_env):
+    """AUC NaN de um challenger reprovado não pode impedir a auditoria."""
+    run_id = log_audit_run(
+        action="promote",
+        version=2,
+        reason="Override com AUC indefinida",
+        operator="analista",
+        details={"auc": float("nan"), "ganho": [float("inf"), 0.01]},
+    )
+    tags = cliente_mlflow(tracking_env).get_run(run_id).data.tags
+    assert json.loads(tags["details"]) == {"auc": "nan", "ganho": ["inf", 0.01]}
+
+
+def test_audit_run_recusa_operador_vazio(tracking_env):
+    with pytest.raises(ValueError, match="operador"):
+        log_audit_run(
+            action="promote", version=2, reason="motivo", operator="  ", details={}
+        )
+
+
+def test_audit_run_operador_indisponivel_falha_com_mensagem(tracking_env, monkeypatch):
+    def _sem_usuario():
+        raise OSError("No username set in the environment")
+
+    monkeypatch.setattr(registry.getpass, "getuser", _sem_usuario)
+    with pytest.raises(ValueError, match="operador"):
+        log_audit_run(action="promote", version=2, reason="motivo", details={})
+
+
+def test_audit_run_falha_do_mlflow_vira_erro_redigido(tracking_env, monkeypatch):
+    def _falhar(*args, **kwargs):
+        raise MlflowException("API request to http://admin:segredo123@host failed")
+
+    monkeypatch.setattr(MlflowClient, "set_terminated", _falhar)
+    with pytest.raises(TrackingUnavailableError) as erro:
+        log_audit_run(
+            action="promote", version=2, reason="motivo", operator="a", details={}
+        )
+    assert "segredo123" not in str(erro.value)
+    assert "Falha ao registrar o run de auditoria" in str(erro.value)
