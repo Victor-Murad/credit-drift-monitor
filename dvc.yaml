@@ -7,7 +7,11 @@
 # - listados arquivo por arquivo: o DVC apaga os `outs` antes de rodar o estagio e
 #   rejeita `outs` sobrepostos (tres estagios escrevem em reports/data_contract/);
 # - `reports/` e `models/` continuam no git: `cache: false`;
-# - `models/champion/` NAO e `out` (promocao e rollback o reescrevem, §4.7);
+# - `models/champion/` NAO e `out` (promocao e rollback o reescrevem, §4.7), mas e
+#   `deps` de `contract_demo` e `drift_demo` (o modelo que eles carregam): uma troca
+#   de champion marca as demos como desatualizadas. O `train` cria o champion no
+#   bootstrap (rastreamento ligado); com `MONITORING_TRACKING=off` nao ha champion e
+#   o `dvc repro` para nessas demos por dependencia ausente (use `make pipeline`);
 # - `data/quarantine/` fica de fora: o nome do arquivo leva o horario do bloqueio.
 # O CSV bruto do Kaggle e `deps` do `prepare` (sem `dvc add`): o hash vai ao dvc.lock.
 stages:
@@ -52,6 +56,8 @@ stages:
     deps:
       - data/production/production_base.parquet
       - models/baseline_model.joblib
+      - models/champion/baseline_model.joblib
+      - models/champion/baseline_metadata.json
       - src/config.py
       - src/logging_utils.py
       - src/models
@@ -80,6 +86,8 @@ stages:
       - data/production/production_base.parquet
       - models/baseline_model.joblib
       - models/baseline_metadata.json
+      - models/champion/baseline_model.joblib
+      - models/champion/baseline_metadata.json
       - src/config.py
       - src/logging_utils.py
       - src/drift

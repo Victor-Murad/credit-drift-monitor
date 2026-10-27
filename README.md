@@ -275,7 +275,7 @@ O `monitor` avalia **um** lote: contrato, pontuação, drift, PSI do score, AUC 
 
   A flag `--local` grava em `.dvc/config.local`, que o `.gitignore` deixa fora do repositório. O versionamento de dados fica só na máquina do usuário, para a demo: o Kaggle proíbe redistribuir o dataset, e um remoto externo (S3, Drive, SSH) seria redistribuição e exigiria credenciais (ADR-0006). Nunca faça `dvc push` para um serviço externo.
 
-> **Limitação conhecida (Fase B):** o `dvc repro` não acompanha promoção nem rollback do champion. O champion servido fica em `models/champion/`, fora dos `outs` do DVC. Por isso, uma troca de champion não marca `contract_demo` nem `drift_demo` como desatualizados, e o `dvc repro` não os reexecuta. O `make pipeline` sempre executa tudo e não tem esse problema.
+> **Champion e `dvc repro`:** o champion servido fica em `models/champion/`, fora dos `outs` do DVC, porque promoção e rollback o reescrevem. Os dois arquivos dele (`baseline_model.joblib` e `baseline_metadata.json`) são `deps` de `contract_demo` e `drift_demo`. Assim, depois de uma promoção ou de um rollback, o `dvc repro` marca as duas demos como desatualizadas e as reexecuta com o champion novo. Limitação: o champion só nasce no bootstrap do `train` com o rastreamento ligado. Com `MONITORING_TRACKING=off`, o `dvc repro` para nessas demos por dependência ausente. Nesse caso, use `make pipeline`.
 
 ## Etapa 4 — Governança, LGPD e Análise Causal
 

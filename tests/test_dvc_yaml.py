@@ -87,6 +87,16 @@ def test_raw_csv_e_dep_do_prepare(estagios):
     assert RAW_CSV in deps
 
 
+@pytest.mark.parametrize("estagio", ["contract_demo", "drift_demo"])
+def test_champion_servido_e_dep_das_demos(estagios, estagio):
+    """Promoção e rollback reescrevem o champion: o `dvc repro` tem de reexecutar as demos."""
+    deps = {caminho for caminho, _ in _entradas(estagios[estagio]["deps"])}
+    assert {
+        (CHAMPION_DIR / "baseline_model.joblib").as_posix(),
+        (CHAMPION_DIR / "baseline_metadata.json").as_posix(),
+    } <= deps
+
+
 def test_champion_dir_fora_dos_outs(estagios):
     invasores = [
         (nome, caminho)
