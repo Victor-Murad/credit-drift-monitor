@@ -119,11 +119,11 @@
       ]
     }
   ],
-  "duration_ms": 71.27,
-  "validated_at": "2026-10-05T21:15:42.766619+00:00",
+  "duration_ms": 28.78,
+  "validated_at": "2026-10-27T10:38:22.119431+00:00",
   "report_files": {
     "json": "reports/data_contract/invalid_batch_report.json",
     "html": "reports/data_contract/invalid_batch_report.html"
   },
-  "quarantine_file": "data/quarantine/invalid_batch_20261005T211542Z.csv"
+  "quarantine_file": "data/quarantine/invalid_batch_20261027T103822Z.csv"
 }

@@ -4,7 +4,7 @@
   passa pelo gate do contrato ANTES do treino (contrato rotulado).
 - Modelo oficial: XGBoost dentro de um Pipeline scikit-learn.
 - Modelo de comparacao: Regressao Logistica (mesmas features) -- serve so
-  como linha de base para justificar a escolha (docs/adr/0003).
+  como linha de base para justificar a escolha (docs/adrs/0003).
 - Particao estratificada da referencia: 60% treino / 20% validacao
   (escolha do threshold) / 20% teste (metricas reportadas).
 - Saidas: models/baseline_model.joblib, models/baseline_metadata.json e
@@ -15,12 +15,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import platform
 import time
 from datetime import UTC, datetime
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any
 
 import joblib
@@ -30,15 +30,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    average_precision_score,
-    brier_score_loss,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-    roc_curve,
-)
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
@@ -62,6 +53,8 @@ from src.config import (
 )
 from src.logging_utils import get_logger, log_event
 from src.models.features import add_ratio_features, model_input
+from src.models.integrity import file_sha256
+from src.models.metrics import evaluate, ks_threshold, score_distribution
 from src.validation.contract import CONTRACT_VERSION
 from src.validation.gate import enforce_contract
 
@@ -129,41 +122,6 @@ def build_pipeline(
 # --------------------------------------------------------------------------
 # Metricas
 # --------------------------------------------------------------------------
-def ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    """KS de credito: maxima separacao entre as distribuicoes de bons e maus."""
-    fpr, tpr, _ = roc_curve(y_true, y_score)
-    return float(np.max(tpr - fpr))
-
-
-def ks_threshold(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    """Ponto de corte que maximiza o KS (estatistica J de Youden)."""
-    fpr, tpr, thresholds = roc_curve(y_true, y_score)
-    return float(thresholds[np.argmax(tpr - fpr)])
-
-
-def evaluate(y_true: np.ndarray, y_score: np.ndarray, threshold: float) -> dict:
-    y_pred = (y_score >= threshold).astype(int)
-    approved = y_pred == 0
-    auc = roc_auc_score(y_true, y_score)
-    return {
-        "roc_auc": round(float(auc), 4),
-        "gini": round(float(2 * auc - 1), 4),
-        "ks": round(ks_statistic(y_true, y_score), 4),
-        "pr_auc": round(float(average_precision_score(y_true, y_score)), 4),
-        "brier": round(float(brier_score_loss(y_true, y_score)), 4),
-        "precision": round(float(precision_score(y_true, y_pred, zero_division=0)), 4),
-        "recall": round(float(recall_score(y_true, y_pred)), 4),
-        "f1": round(float(f1_score(y_true, y_pred)), 4),
-        # Visao de negocio: quanto aprovamos e qual a inadimplencia da
-        # carteira aprovada (vs. taxa base).
-        "approval_rate": round(float(approved.mean()), 4),
-        "default_rate_approved": round(float(y_true[approved].mean()), 4)
-        if approved.any()
-        else None,
-        "default_rate_base": round(float(y_true.mean()), 4),
-    }
-
-
 def raw_feature_importance(
     pipeline: Pipeline, X: pd.DataFrame, y: np.ndarray, seed: int = SEED
 ) -> list[dict]:
@@ -211,6 +169,80 @@ def split_reference(
     return train, val, test
 
 
+def fit_model(
+    name: str,
+    train: pd.DataFrame,
+    val: pd.DataFrame,
+    seed: int = SEED,
+    xgb_params: dict | None = None,
+) -> tuple[Pipeline, float]:
+    """Treina o pipeline `name` e escolhe o threshold (KS maximo) na VALIDACAO.
+
+    Compartilhado com o retreino do challenger (`src.monitoring.retrain`): mesmo
+    pipeline, mesmos hiperparametros e mesma regra de threshold. O threshold volta
+    sem arredondar (as metricas de teste usam o valor exato).
+    """
+    pipe = build_pipeline(name, seed, xgb_params)
+    pipe.fit(model_input(train), train[TARGET_COLUMN].to_numpy())
+    threshold = ks_threshold(
+        val[TARGET_COLUMN].to_numpy(), pipe.predict_proba(model_input(val))[:, 1]
+    )
+    return pipe, threshold
+
+
+def make_bundle(
+    pipeline: Pipeline, threshold: float, model_version: str, seed: int = SEED
+) -> dict:
+    """Bundle servido (`joblib`): pipeline, threshold arredondado e versoes."""
+    return {
+        "pipeline": pipeline,
+        "threshold": round(threshold, 6),
+        "model_version": model_version,
+        "input_columns": MODEL_INPUT_COLUMNS,
+        "contract_version": CONTRACT_VERSION,
+        "seed": seed,
+    }
+
+
+def model_metadata(
+    *,
+    model_version: str,
+    seed: int,
+    splits: dict[str, int],
+    xgb_params: dict | None,
+    models: dict[str, dict],
+    score_reference: dict,
+    raw_feature_importance: list[dict] | None = None,
+) -> dict:
+    """Metadata do modelo oficial (xgboost), comum ao baseline e ao challenger.
+
+    `score_reference` (scores do modelo oficial no teste da referencia) e a
+    referencia do PSI do score em producao. A importancia por permutacao so entra
+    quando calculada (o baseline a calcula; o retreino nao).
+    """
+    metadata: dict[str, Any] = {
+        "model_version": model_version,
+        "official_model": "xgboost",
+        "trained_at": datetime.now(tz=UTC).isoformat(),
+        "seed": seed,
+        "contract_version": CONTRACT_VERSION,
+        "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
+        "splits": splits,
+        "features": {
+            "categorical": CATEGORICAL_FEATURES,
+            "numeric": NUMERIC_FEATURES,
+            "derived_in_pipeline": RATIO_FEATURES,
+            "excluded_audit_only": ["gender"],
+        },
+        "xgboost_params": {**XGB_PARAMS, **(xgb_params or {})},
+        "models": models,
+    }
+    if raw_feature_importance is not None:
+        metadata["raw_feature_importance"] = raw_feature_importance
+    metadata["score_reference"] = score_reference
+    return metadata
+
+
 def train_models(
     reference: pd.DataFrame,
     seed: int = SEED,
@@ -222,15 +254,14 @@ def train_models(
     Retorna (bundle do modelo oficial, metadados). Nao grava nada em disco.
     """
     train, val, test = split_reference(reference, seed)
-    y_train, y_val, y_test = (d[TARGET_COLUMN].to_numpy() for d in (train, val, test))
+    y_test = test[TARGET_COLUMN].to_numpy()
 
     results: dict[str, dict] = {}
     pipelines: dict[str, Pipeline] = {}
+    test_scores: dict[str, np.ndarray] = {}
     for name in ("xgboost", "logistic_regression"):
         started = time.perf_counter()
-        pipe = build_pipeline(name, seed, xgb_params)
-        pipe.fit(model_input(train), y_train)
-        threshold = ks_threshold(y_val, pipe.predict_proba(model_input(val))[:, 1])
+        pipe, threshold = fit_model(name, train, val, seed, xgb_params)
         test_score = pipe.predict_proba(model_input(test))[:, 1]
         results[name] = {
             "threshold": round(threshold, 6),
@@ -238,6 +269,7 @@ def train_models(
             "train_seconds": round(time.perf_counter() - started, 2),
         }
         pipelines[name] = pipe
+        test_scores[name] = test_score
         log_event(
             logger,
             "model_trained",
@@ -253,44 +285,26 @@ def train_models(
         official, model_input(sample), sample[TARGET_COLUMN].to_numpy(), seed
     )
 
-    bundle = {
-        "pipeline": official,
-        "threshold": results["xgboost"]["threshold"],
-        "model_version": MODEL_VERSION,
-        "input_columns": MODEL_INPUT_COLUMNS,
-        "contract_version": CONTRACT_VERSION,
-        "seed": seed,
-    }
-    metadata = {
-        "model_version": MODEL_VERSION,
-        "official_model": "xgboost",
-        "trained_at": datetime.now(tz=UTC).isoformat(),
-        "seed": seed,
-        "contract_version": CONTRACT_VERSION,
-        "decision_rule": "negar credito se P(default) >= threshold (threshold = ponto de KS maximo na validacao)",
-        "splits": {
+    bundle = make_bundle(official, results["xgboost"]["threshold"], MODEL_VERSION, seed)
+    metadata = model_metadata(
+        model_version=MODEL_VERSION,
+        seed=seed,
+        splits={
             "train": int(len(train)),
             "validation": int(len(val)),
             "test": int(len(test)),
         },
-        "features": {
-            "categorical": CATEGORICAL_FEATURES,
-            "numeric": NUMERIC_FEATURES,
-            "derived_in_pipeline": RATIO_FEATURES,
-            "excluded_audit_only": ["gender"],
-        },
-        "xgboost_params": {**XGB_PARAMS, **(xgb_params or {})},
-        "models": results,
-        "raw_feature_importance": importance,
-    }
+        xgb_params=xgb_params,
+        models=results,
+        # Referencia do PSI do score em producao: scores do modelo oficial no teste.
+        score_reference=score_distribution(test_scores["xgboost"]),
+        raw_feature_importance=importance,
+    )
     return bundle, metadata
 
 
-def _sha256(path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _environment() -> dict:
+def environment() -> dict:
+    """Versoes do Python e dos pacotes do modelo (vai para o metadata)."""
     packages = ["scikit-learn", "xgboost", "pandas", "numpy", "pandera", "joblib"]
     return {"python": platform.python_version(), **{p: version(p) for p in packages}}
 
@@ -329,7 +343,36 @@ Modelo oficial: **{metadata["official_model"]}**.
 """
 
 
-def main() -> None:
+def save_bundle(
+    bundle: dict,
+    metadata: dict,
+    model_file: Path,
+    metadata_file: Path,
+    *,
+    artifact_file: str | None = None,
+) -> dict:
+    """Grava o bundle e o metadata com `artifact` = {file, sha256} do bundle gravado.
+
+    `artifact_file` e o nome registrado do arquivo (padrao: caminho relativo a
+    raiz). Altera e devolve o proprio `metadata`.
+    """
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(bundle, model_file)
+    metadata["artifact"] = {
+        "file": artifact_file or project_relative(model_file),
+        "sha256": file_sha256(model_file),
+    }
+    metadata_file.write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return metadata
+
+
+def main() -> tuple[dict, dict]:
+    """Treina, grava os artefatos e devolve `(bundle, metadata)` (como gravados).
+
+    O retorno serve ao estágio rastreado (`src.monitoring.stage`); o CLI ignora.
+    """
     set_global_seed()
     reference = pd.read_parquet(REFERENCE_FILE)
     # Gate: o treino so acontece se a referencia cumprir o contrato rotulado.
@@ -340,21 +383,13 @@ def main() -> None:
     bundle, metadata = train_models(reference)
     metadata["data_lineage"] = {
         "reference_file": project_relative(REFERENCE_FILE),
-        "reference_sha256": _sha256(REFERENCE_FILE),
+        "reference_sha256": file_sha256(REFERENCE_FILE),
         "reference_rows": int(len(reference)),
         "build_report": "reports/data_contract/reference_build_report.json",
     }
-    metadata["environment"] = _environment()
+    metadata["environment"] = environment()
 
-    MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(bundle, MODEL_FILE)
-    metadata["artifact"] = {
-        "file": project_relative(MODEL_FILE),
-        "sha256": _sha256(MODEL_FILE),
-    }
-    MODEL_METADATA_FILE.write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    save_bundle(bundle, metadata, MODEL_FILE, MODEL_METADATA_FILE)
     MODEL_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (MODEL_REPORTS_DIR / "baseline_metrics.md").write_text(
         write_metrics_markdown(metadata), encoding="utf-8"
@@ -366,6 +401,7 @@ def main() -> None:
         file=project_relative(MODEL_FILE),
         roc_auc=metadata["models"]["xgboost"]["test_metrics"]["roc_auc"],
     )
+    return bundle, metadata
 
 
 if __name__ == "__main__":

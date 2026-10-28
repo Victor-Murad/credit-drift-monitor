@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +25,21 @@ from src.config import PIPELINE_LOG_FILE
 
 _EXTRA_KEY = "event_fields"
 
+# Identifica a execucao do pipeline: todo evento do processo carrega o mesmo
+# `run_id`, o que permite correlacionar os logs depois de centralizados.
+# Um orquestrador pode fixa-lo via PIPELINE_RUN_ID para agrupar varios comandos.
+RUN_ID = os.environ.get("PIPELINE_RUN_ID") or uuid.uuid4().hex[:12]
+
+# Rotacao: ~10 MB por arquivo, 5 anteriores guardados.
+LOG_MAX_BYTES = 10_000_000
+LOG_BACKUP_COUNT = 5
+
 
 class JsonLinesFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "run_id": RUN_ID,
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -52,7 +65,12 @@ def get_logger(name: str, log_file: Path | None = None) -> logging.Logger:
 
     log_path = log_file or PIPELINE_LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(JsonLinesFormatter())
     logger.addHandler(file_handler)
     return logger

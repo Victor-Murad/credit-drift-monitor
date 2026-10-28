@@ -58,7 +58,7 @@ MODEL_REPORTS_DIR = REPORTS_DIR / "model"
 DRIFT_REPORTS_DIR = REPORTS_DIR / "drift"
 LOGS_DIR = ROOT_DIR / "logs"
 
-# Fonte: Home Credit Default Risk (Kaggle) -- ver docs/adr/0001
+# Fonte: Home Credit Default Risk (Kaggle) -- ver docs/adrs/0001
 KAGGLE_COMPETITION = "home-credit-default-risk"
 RAW_FILE_NAME = "application_train.csv"
 RAW_FILE = RAW_DIR / RAW_FILE_NAME
@@ -88,10 +88,37 @@ VALID_BATCH_FILE = SAMPLES_DIR / "valid_batch.csv"
 MODEL_FILE = MODELS_DIR / "baseline_model.joblib"
 MODEL_METADATA_FILE = MODELS_DIR / "baseline_metadata.json"
 
+# Modelo campeao em producao (Etapa 3): copia local do que o Registry marca
+# com o alias `champion`.
+CHAMPION_DIR = MODELS_DIR / "champion"
+CHAMPION_FILE = CHAMPION_DIR / "baseline_model.joblib"
+CHAMPION_METADATA_FILE = CHAMPION_DIR / "baseline_metadata.json"
+
 # Sobrescrevivel por variavel de ambiente (os testes usam um arquivo temporario).
 PIPELINE_LOG_FILE = Path(
     os.environ.get("PIPELINE_LOG_FILE", LOGS_DIR / "pipeline.jsonl")
 )
+
+# --------------------------------------------------------------------------
+# Observabilidade e Model Registry locais (Etapa 3 -- ver docs/adrs/0006)
+# --------------------------------------------------------------------------
+MLFLOW_EXPERIMENT = "credit-drift-monitor"
+# Caminhos absolutos a partir de ROOT_DIR: o worktree e o checkout principal
+# nao divergem. Sobrescreviveis por variavel de ambiente (os testes usam um
+# diretorio temporario e nunca tocam o mlflow.db real).
+MLFLOW_TRACKING_URI = os.environ.get(
+    "MLFLOW_TRACKING_URI", f"sqlite:///{ROOT_DIR / 'mlflow.db'}"
+)
+MLFLOW_ARTIFACT_ROOT = Path(
+    os.environ.get("MLFLOW_ARTIFACT_ROOT", ROOT_DIR / "mlartifacts")
+)
+REGISTERED_MODEL_NAME = "credit-default-xgboost"
+# Politica de promocao challenger -> champion: ganho minimo de ROC-AUC exigido
+# e regressao maxima tolerada nas metricas de guarda.
+PROMOTION_MIN_GAIN = 0.02
+PROMOTION_MAX_REGRESSION = 0.02
+# Faixas (quantis do baseline) usadas no PSI do score do modelo.
+SCORE_PSI_BINS = 10
 
 # --------------------------------------------------------------------------
 # Particionamento
@@ -177,3 +204,15 @@ RATIO_FEATURES = [
 AUDIT_COLUMNS = ["gender"]
 
 MODEL_INPUT_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
+
+# --------------------------------------------------------------------------
+# Limiares de monitoramento (Etapa 2 -- ver docs/adrs/0005)
+# --------------------------------------------------------------------------
+# PSI: convencao de mercado (credit scoring). < 0,10 estavel; 0,10-0,25
+# moderado; >= 0,25 mudanca significativa.
+PSI_MODERATE = 0.10
+PSI_SIGNIFICANT = 0.25
+# Queda de ROC-AUC (vs. baseline) a partir da qual a performance do modelo
+# e considerada degradada -- sinal de concept drift que nao depende do `target`
+# ter mudado de prevalencia.
+AUC_DROP_ALERT = 0.05

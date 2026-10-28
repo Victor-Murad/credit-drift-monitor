@@ -1,7 +1,21 @@
-# ADR-0001 — Dataset: Home Credit Default Risk
+<!--
+================================================================================
+LOG DE MANUTENÇÃO DE DOCUMENTAÇÃO
+--------------------------------------------------------------------------------
+Data       | Autor          | Descrição
+--------------------------------------------------------------------------------
+2026-10-20 | Eduardo Batista | Adequação ao padrão canônico de ADR (título, log e seção 2).
+================================================================================
+-->
 
-- **Status:** aceita
-- **Etapa:** 1 (checklist 1.1)
+# ADR 0001: Dataset: Home Credit Default Risk
+
+| Metadado | Detalhe |
+| :--- | :--- |
+| **Status** | **Implementada** (2026-10-20) |
+| **Decisores** | Eduardo Batista |
+| **Tags** | `[dataset]`, `[etapa-1]` |
+| **Etapa** | 1 (checklist 1.1) |
 
 ## Contexto
 
@@ -13,7 +27,7 @@ O enunciado pede um dataset **público, tabular, de classificação binária fin
 | Lending Club | ~2,2 milhões | Sim | Mais de 2 GB e mais de 150 colunas; pesado demais para o escopo e para rodar nas máquinas do grupo. |
 | **Home Credit Default Risk** | **307.511** | **Sim** | Uma única tabela (`application_train.csv`, ~166 MB) já basta. Tem renda, idade, emprego, valor do crédito e parcela, scores de bureau e alvo binário (`TARGET`). |
 
-## Decisão
+## 2. Decisão de Arquitetura
 
 Usar o **`application_train.csv` do Home Credit Default Risk** (Kaggle), lendo **apenas 21 das 122 colunas** (minimização de dados, LGPD art. 6º, III).
 

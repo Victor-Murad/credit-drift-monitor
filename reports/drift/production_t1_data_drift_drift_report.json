@@ -20,54 +20,69 @@
       "method": "ks",
       "statistic": 0.0,
       "threshold": 0.05,
-      "drifted": true
+      "drifted": true,
+      "psi": 0.173189,
+      "psi_level": "moderate"
     },
     {
       "column": "ext_source_3",
       "method": "ks",
       "statistic": 0.0,
       "threshold": 0.05,
-      "drifted": true
+      "drifted": true,
+      "psi": 0.973924,
+      "psi_level": "significant"
     },
     {
       "column": "ext_source_2",
       "method": "ks",
       "statistic": 0.958776,
       "threshold": 0.05,
-      "drifted": false
+      "drifted": false,
+      "psi": 0.00082,
+      "psi_level": "stable"
     },
     {
       "column": "income_total",
       "method": "ks",
       "statistic": 0.0,
       "threshold": 0.05,
-      "drifted": true
+      "drifted": true,
+      "psi": 0.759723,
+      "psi_level": "significant"
     },
     {
       "column": "credit_amount",
       "method": "ks",
       "statistic": 0.373515,
       "threshold": 0.05,
-      "drifted": false
+      "drifted": false,
+      "psi": 0.001347,
+      "psi_level": "stable"
     },
     {
       "column": "years_employed",
       "method": "ks",
       "statistic": 0.774317,
       "threshold": 0.05,
-      "drifted": false
+      "drifted": false,
+      "psi": 0.001139,
+      "psi_level": "stable"
     },
     {
       "column": "target",
       "method": "chisquare",
       "statistic": 0.418384,
       "threshold": 0.05,
-      "drifted": false
+      "drifted": false,
+      "psi": 4.3e-05,
+      "psi_level": "stable"
     }
   ],
-  "concept_drift": false,
-  "duration_ms": 1267.4,
+  "label_shift": false,
+  "duration_ms": 265.44,
   "report_paths": {},
+  "concept_drift": false,
   "evidently_metrics": [
     {
       "id": "ee872157bf6935d2539ddf961e05af36",

@@ -1,0 +1,127 @@
+# Pipeline reprodutivel da Etapa 3 (spec §4.5, ADR-0006).
+#
+# `make repro` (= `uv run dvc repro`) pula estagios sem mudanca e nao define o
+# PIPELINE_RUN_ID; `make pipeline` encadeia os mesmos estagios sempre executando.
+#
+# Regras dos `outs`:
+# - listados arquivo por arquivo: o DVC apaga os `outs` antes de rodar o estagio e
+#   rejeita `outs` sobrepostos (tres estagios escrevem em reports/data_contract/);
+# - `reports/` e `models/` continuam no git: `cache: false`;
+# - `models/champion/` NAO e `out` (promocao e rollback o reescrevem, §4.7), mas e
+#   `deps` de `contract_demo` e `drift_demo` (o modelo que eles carregam): uma troca
+#   de champion marca as demos como desatualizadas. O `train` cria o champion no
+#   bootstrap (rastreamento ligado); com `MONITORING_TRACKING=off` nao ha champion e
+#   o `dvc repro` para nessas demos por dependencia ausente (use `make pipeline`);
+# - `data/quarantine/` fica de fora: o nome do arquivo leva o horario do bloqueio.
+# O CSV bruto do Kaggle e `deps` do `prepare` (sem `dvc add`): o hash vai ao dvc.lock.
+stages:
+  prepare:
+    cmd: uv run python -m src.monitoring.stage prepare
+    deps:
+      - data/raw/application_train.csv
+      - src/config.py
+      - src/logging_utils.py
+      - src/data/prepare.py
+      - src/validation
+      - src/monitoring
+    outs:
+      - data/reference/reference.parquet
+      - data/production/production_base.parquet
+      - reports/data_contract/reference_build_report.json:
+          cache: false
+
+  train:
+    cmd: uv run python -m src.monitoring.stage train
+    deps:
+      - data/reference/reference.parquet
+      - src/config.py
+      - src/logging_utils.py
+      - src/models
+      - src/validation
+      - src/monitoring
+    outs:
+      - models/baseline_model.joblib:
+          cache: false
+      - models/baseline_metadata.json:
+          cache: false
+      - reports/model/baseline_metrics.md:
+          cache: false
+      - reports/data_contract/reference_training_report.html:
+          cache: false
+      - reports/data_contract/reference_training_report.json:
+          cache: false
+
+  contract_demo:
+    cmd: uv run python -m src.monitoring.stage contract_demo
+    deps:
+      - data/production/production_base.parquet
+      - models/baseline_model.joblib
+      - models/champion/baseline_model.joblib
+      - models/champion/baseline_metadata.json
+      - src/config.py
+      - src/logging_utils.py
+      - src/models
+      - src/validation
+      - src/monitoring
+    outs:
+      - data/samples/valid_batch.csv
+      - data/samples/invalid_batch.csv
+      - reports/data_contract/valid_batch_report.html:
+          cache: false
+      - reports/data_contract/valid_batch_report.json:
+          cache: false
+      - reports/data_contract/invalid_batch_report.html:
+          cache: false
+      - reports/data_contract/invalid_batch_report.json:
+          cache: false
+      - reports/data_contract/contract_demo_summary.md:
+          cache: false
+      - reports/data_contract/invalid_batch_manifest.json:
+          cache: false
+
+  drift_demo:
+    cmd: uv run python -m src.monitoring.stage drift_demo
+    deps:
+      - data/reference/reference.parquet
+      - data/production/production_base.parquet
+      - models/baseline_model.joblib
+      - models/baseline_metadata.json
+      - models/champion/baseline_model.joblib
+      - models/champion/baseline_metadata.json
+      - src/config.py
+      - src/logging_utils.py
+      - src/drift
+      - src/models
+      - src/validation
+      - src/monitoring
+    outs:
+      - data/production/production_t1_data_drift.parquet
+      - data/production/production_t2_concept_drift.parquet
+      - reports/drift/production_t0_drift_report.html:
+          cache: false
+      - reports/drift/production_t0_drift_report.json:
+          cache: false
+      - reports/drift/production_t1_data_drift_drift_report.html:
+          cache: false
+      - reports/drift/production_t1_data_drift_drift_report.json:
+          cache: false
+      - reports/drift/production_t2_concept_drift_drift_report.html:
+          cache: false
+      - reports/drift/production_t2_concept_drift_drift_report.json:
+          cache: false
+      - reports/drift/contract_gate/production_t0_report.html:
+          cache: false
+      - reports/drift/contract_gate/production_t0_report.json:
+          cache: false
+      - reports/drift/contract_gate/production_t1_data_drift_report.html:
+          cache: false
+      - reports/drift/contract_gate/production_t1_data_drift_report.json:
+          cache: false
+      - reports/drift/contract_gate/production_t2_concept_drift_report.html:
+          cache: false
+      - reports/drift/contract_gate/production_t2_concept_drift_report.json:
+          cache: false
+      - reports/drift/drift_demo_summary.json:
+          cache: false
+      - reports/drift/drift_demo_summary.md:
+          cache: false

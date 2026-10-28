@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,27 +22,30 @@ import pandas as pd
 
 from src.config import (
     DRIFT_REPORTS_DIR,
-    MODEL_FILE,
     PRODUCTION_BASE_FILE,
     PRODUCTION_T1_FILE,
     PRODUCTION_T2_FILE,
+    PSI_MODERATE,
     REFERENCE_FILE,
     SEED,
     TARGET_COLUMN,
     project_relative,
     set_global_seed,
 )
-from src.drift.detect import run_drift_detection
+from src.drift.detect import DriftResult, run_drift_detection
+from src.drift.performance import assess_auc_drop
 from src.drift.simulate import simulate_production_slices
 from src.logging_utils import get_logger, log_event
+from src.models.metrics import evaluate
 from src.models.predict import load_bundle, score_batch
-from src.models.train import evaluate
 from src.validation.gate import DataContractViolation
 
 logger = get_logger("drift.demo")
 
-# Colunas monitoradas na demo (variaveis da Etapa 2 + target para concept).
-DEMO_DRIFT_COLUMNS = [
+# Colunas monitoradas (variaveis da Etapa 2 + target para label shift): as mesmas na
+# demo e no comando `monitor` (src/monitoring/monitor.py). `target` so entra se o
+# lote for rotulado.
+MONITORED_COLUMNS = [
     "annuity_amount",
     "ext_source_3",
     "ext_source_2",
@@ -49,6 +54,10 @@ DEMO_DRIFT_COLUMNS = [
     "years_employed",
     TARGET_COLUMN,
 ]
+# Nome antigo (Etapa 2), mantido como alias.
+DEMO_DRIFT_COLUMNS = MONITORED_COLUMNS
+# Fracao de colunas driftadas que marca `dataset_drift` no lote.
+DATASET_DRIFT_SHARE = 0.3
 
 # Evidently em 200k+ linhas fica lento para a demo; amostramos a referencia
 # e a corrente com a mesma seed (reprodutivel). As metricas de modelo usam
@@ -56,7 +65,7 @@ DEMO_DRIFT_COLUMNS = [
 EVIDENTLY_SAMPLE_SIZE = 15_000
 
 
-def _sample_for_evidently(
+def sample_for_evidently(
     reference: pd.DataFrame, current: pd.DataFrame, n: int = EVIDENTLY_SAMPLE_SIZE
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     ref = (
@@ -93,26 +102,57 @@ def _score_slice(
     return scored, metrics
 
 
+@dataclass(frozen=True)
+class BatchObservation:
+    """O que a demo sabe de um lote depois de pontuá-lo e detectar drift.
+
+    Entregue ao gancho `on_batch` de `run_demo` (o estágio `drift_demo` o usa para
+    registrar o lote no MLflow; esta camada não conhece o MLflow). `scored` traz
+    `default_probability` (e `target`, se o lote for rotulado); `metrics` é a saída
+    de `evaluate`; `batch_path` é o arquivo do lote avaliado.
+    """
+
+    batch_name: str
+    scored: pd.DataFrame
+    metrics: dict
+    drift: DriftResult
+    report_dir: Path
+    model_version: str
+    batch_path: Path | None = None
+
+
 def run_demo(
     *,
     report_dir: Path = DRIFT_REPORTS_DIR,
     evidently_sample: int = EVIDENTLY_SAMPLE_SIZE,
+    on_batch: Callable[[BatchObservation], None] | None = None,
+    bundle_loader: Callable[[], dict] | None = None,
 ) -> dict:
+    """Simula t1/t2, pontua t0/t1/t2, detecta drift e grava o sumário.
+
+    `on_batch` é chamado uma vez por lote, na ordem t0, t1, t2, depois das métricas
+    e da detecção. `bundle_loader` carrega o modelo (padrão: `load_bundle()`, que
+    usa `models/champion/` se existir, senão o bundle do treino, e sai com
+    mensagem se nenhum existir); ele roda antes de simular as fatias.
+    """
     set_global_seed(SEED)
 
-    for required in (PRODUCTION_BASE_FILE, REFERENCE_FILE, MODEL_FILE):
-        if not required.exists():
+    for path in (PRODUCTION_BASE_FILE, REFERENCE_FILE):
+        if not path.exists():
             sys.exit(
-                f"Artefato ausente: {required}. Rode `make etapa1` (data + train) antes."
+                f"Artefato ausente: {path}. Rode `make etapa1` (data + train) antes."
             )
 
     report_dir.mkdir(parents=True, exist_ok=True)
     gate_report_dir = report_dir / "contract_gate"
     gate_report_dir.mkdir(parents=True, exist_ok=True)
 
+    # O modelo é conferido (e recusado, se for o caso) antes de simular as fatias.
+    bundle = (bundle_loader or load_bundle)()
+    model_version = str(bundle["model_version"])
+
     # 1. Simular fatias
     paths = simulate_production_slices()
-    bundle = load_bundle()
     reference = pd.read_parquet(REFERENCE_FILE)
 
     slices = [
@@ -145,24 +185,47 @@ def run_demo(
         # t0 serve de baseline de performance; ainda assim reportamos drift
         # vs referencia (deve ser estavel ou leve, por ser split da mesma origem).
         current = pd.read_parquet(path)
-        ref_s, cur_s = _sample_for_evidently(reference, current, n=evidently_sample)
+        ref_s, cur_s = sample_for_evidently(reference, current, n=evidently_sample)
         drift = run_drift_detection(
             ref_s,
             cur_s,
             batch_name=batch_name,
-            columns=DEMO_DRIFT_COLUMNS,
+            columns=MONITORED_COLUMNS,
             report_dir=report_dir,
-            drift_share=0.3,
+            drift_share=DATASET_DRIFT_SHARE,
+            min_psi=PSI_MODERATE,
+            model_version=model_version,
         )
         drift_results[batch_name] = drift.to_dict()
+        if on_batch is not None:
+            on_batch(
+                BatchObservation(
+                    batch_name=batch_name,
+                    scored=scored,
+                    metrics=metrics,
+                    drift=drift,
+                    report_dir=report_dir,
+                    model_version=model_version,
+                    batch_path=path,
+                )
+            )
+
+    # Sinal de concept drift baseado em performance: queda de AUC vs. t0.
+    baseline_auc = score_results["production_t0"]["metrics"]["roc_auc"]
+    performance = {
+        name: assess_auc_drop(baseline_auc, res["metrics"]["roc_auc"]).to_dict()
+        for name, res in score_results.items()
+    }
 
     summary = {
         "generated_at": datetime.now(tz=UTC).isoformat(),
         "seed": SEED,
         "evidently_sample_size": evidently_sample,
+        "min_psi": PSI_MODERATE,
         "model_version": bundle["model_version"],
         "slices": score_results,
         "drift": drift_results,
+        "performance": performance,
     }
 
     summary_json = report_dir / "drift_demo_summary.json"
@@ -179,11 +242,20 @@ def run_demo(
         status="SUCCESS",
         summary_md=project_relative(summary_md),
         t1_dataset_drift=drift_results["production_t1_data_drift"]["dataset_drift"],
-        t2_concept_drift=drift_results["production_t2_concept_drift"]["concept_drift"],
+        t2_label_shift=drift_results["production_t2_concept_drift"]["label_shift"],
         t0_auc=score_results["production_t0"]["metrics"]["roc_auc"],
         t2_auc=score_results["production_t2_concept_drift"]["metrics"]["roc_auc"],
+        t2_auc_drop=performance["production_t2_concept_drift"]["drop"],
+        t2_performance_degraded=performance["production_t2_concept_drift"]["degraded"],
     )
     return summary
+
+
+def _performance_row(name: str, perf: dict) -> str:
+    return (
+        f"| `{name}` | {perf['current']:.4f} | {perf['drop']:.4f} | "
+        f"{perf['threshold']:.2f} | {'SIM' if perf['degraded'] else 'nao'} |"
+    )
 
 
 def _render_markdown(summary: dict) -> str:
@@ -196,12 +268,19 @@ def _render_markdown(summary: dict) -> str:
     def drift_row(name: str) -> str:
         d = drift[name]
         cols = (
-            ", ".join(c["column"] for c in d["column_results"] if c["drifted"]) or "—"
+            ", ".join(
+                f"{c['column']} (PSI {c['psi']:.2f})"
+                if c.get("psi") is not None
+                else c["column"]
+                for c in d["column_results"]
+                if c["drifted"]
+            )
+            or "—"
         )
         return (
             f"| `{name}` | {'SIM' if d['dataset_drift'] else 'nao'} | "
             f"{d['n_drifted_columns']}/{len(d['columns_checked'])} | "
-            f"{'SIM' if d['concept_drift'] else 'nao'} | {cols} |"
+            f"{'SIM' if d['label_shift'] else 'nao'} | {cols} |"
         )
 
     lines = [
@@ -231,11 +310,29 @@ def _render_markdown(summary: dict) -> str:
         "",
         "## Detecção Evidently (vs Dataset de Referência)",
         "",
-        "| Fatia | Dataset drift | Colunas driftadas | Concept drift (`target`) | Colunas |",
+        "| Fatia | Dataset drift | Colunas driftadas | Label shift (`target`) | Colunas |",
         "|---|---|---|---|---|",
         drift_row("production_t0"),
         drift_row("production_t1_data_drift"),
         drift_row("production_t2_concept_drift"),
+        "",
+        f"> Coluna marcada = KS/chi² significativo **e** PSI ≥ {summary['min_psi']:.2f} "
+        "(filtra ruído de amostra grande; ADR-0005).",
+        "",
+        "> **Como ler:** o teste sobre `target` detecta só mudança na *prevalência* "
+        "do rótulo (label/prior shift), não mudança em P(y|X). O PSI é o tamanho do "
+        "efeito (< 0,10 estável · 0,10–0,25 moderado · ≥ 0,25 significativo): KS "
+        "marcado com PSI baixo é provável ruído de amostra grande.",
+        "",
+        "## Degradação de performance (sinal de Concept Drift)",
+        "",
+        "| Fatia | ROC-AUC | Queda vs t0 | Limiar | Modelo degradado |",
+        "|---|---|---|---|---|",
+        *[_performance_row(name, p) for name, p in summary["performance"].items()],
+        "",
+        "A queda de ROC-AUC com rótulos de feedback é o sinal confiável de concept "
+        "drift: mede se o modelo passou a errar mais, independentemente de o rótulo "
+        "ter mudado de prevalência.",
         "",
         "## Artefatos",
         "",
@@ -250,7 +347,8 @@ def _render_markdown(summary: dict) -> str:
         "marcou drift nas variáveis importantes (`annuity_amount`, `ext_source_3`).",
         "2. **`income_total` pode driftar sem derrubar o modelo** (importância baixa).",
         "3. **Concept drift** (t2) altera o rótulo e degrada AUC / inadimplência "
-        "da carteira aprovada mesmo com o mesmo pipeline.",
+        "da carteira aprovada mesmo com o mesmo pipeline; o alerta confiável é a "
+        "queda de AUC, não o teste sobre `target`.",
         "",
     ]
     return "\n".join(lines)

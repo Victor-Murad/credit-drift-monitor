@@ -17,7 +17,7 @@ Todos os números abaixo vêm dos artefatos gerados por `make etapa2` sobre o **
 | Simular Data Drift em variáveis importantes | ✅ | `annuity_amount`, `ext_source_3` (+ `income_total` complementar). |
 | Simular Concept Drift (relação X → y) | ✅ | Flip de `target` em faixas de baixo risco (`ext_source_3` alto). |
 | Garantir que lotes driftados passam no contrato | ✅ | Clip aos limites Pandera; gate APROVADO em t0/t1/t2. |
-| Detectar drift com ferramenta (Evidently) | ✅ | [ADR-0004](adr/0004-evidently-drift-detection.md). |
+| Detectar drift com ferramenta (Evidently) | ✅ | [ADR-0004](adrs/0004-evidently-drift-detection.md). |
 | Medir impacto no modelo / negócio | ✅ | AUC, aprovação e default na carteira aprovada (t0 vs t1 vs t2). |
 
 ### Variáveis e choques (contrato de simulação)
@@ -38,7 +38,7 @@ Todos os números abaixo vêm dos artefatos gerados por `make etapa2` sobre o **
 | Item | Status | Onde |
 |---|---|---|
 | Dependência Evidently | ✅ | [`pyproject.toml`](../pyproject.toml) + [`uv.lock`](../uv.lock) |
-| ADR da escolha | ✅ | [ADR-0004](adr/0004-evidently-drift-detection.md) |
+| ADR da escolha | ✅ | [ADR-0004](adrs/0004-evidently-drift-detection.md) |
 | Pacote `src/drift/` | ✅ | `simulate.py`, `detect.py`, `report.py`, `demo.py` |
 | Caminhos e constantes | ✅ | [`src/config.py`](../src/config.py): `DRIFT_REPORTS_DIR`, `PRODUCTION_T1_FILE`, `PRODUCTION_T2_FILE`, choques |
 | Makefile | ✅ | `make simulate-drift`, `make detect-drift`, `make drift-demo`, `make etapa2` |
@@ -49,7 +49,9 @@ Estrutura espelhando a Etapa 1 (`src/validation/`):
 ```
 src/drift/
   simulate.py   # aplica choques + clip + grava t1/t2
-  detect.py     # Evidently DataDriftPreset (KS / chi-square)
+  detect.py     # Evidently DataDriftPreset (KS / chi-square) + PSI por coluna
+  psi.py        # Population Stability Index (tamanho do efeito)
+  performance.py# queda de ROC-AUC vs baseline (sinal de concept drift)
   report.py     # HTML (Evidently) + JSON estruturado
   demo.py       # orquestra: simular → gate → score → detectar → sumário
 ```
@@ -99,13 +101,15 @@ Fluxo da demo:
 
 ### Detecção vs Dataset de Referência
 
-Amostra Evidently: 15.000 linhas da Referência e da corrente (seed 42). Limiar de *dataset drift*: share ≥ 30% das colunas monitoradas.
+Amostra Evidently: 15.000 linhas da Referência e da corrente (seed 42). Limiar de *dataset drift*: share ≥ 30% das colunas monitoradas. Coluna marcada = KS/chi² significativo **e** PSI ≥ 0,10 (`min_psi`, [ADR-0005](adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)).
 
-| Fatia | Dataset drift | Colunas com drift (KS/chi²) | Concept drift (`target`) |
+| Fatia | Dataset drift | Colunas marcadas (PSI) | Label shift (`target`) |
 |---|---|---|---|
-| t0 | **não** (1/7 = 14%) | `annuity_amount` (ruído do KS em amostra grande; abaixo do limiar) | não |
-| t1 | **SIM** (3/7) | `annuity_amount`, `ext_source_3`, `income_total` | não |
-| t2 | **SIM** (4/7) | as três acima + **`target`** | **SIM** |
+| t0 | **não** (0/7) | nenhuma (sem `min_psi`, o KS marcava `annuity_amount` com PSI 0,00: ruído) | não |
+| t1 | **SIM** (3/7) | `annuity_amount` (0,17), `ext_source_3` (0,97), `income_total` (0,76) | não |
+| t2 | **SIM** (3/7) | as mesmas três | não (KS significativo, mas PSI 0,02) |
+
+> **Atenção ao "Label shift (`target`)":** o teste sobre `target` detecta só mudança de *prevalência* do rótulo (label/prior shift) e é exposto no campo `label_shift` de `DriftResult` e dos relatórios JSON (antes `concept_drift`, mantido como alias **obsoleto**, removido na Etapa 4; relatórios gerados antes do renome só trazem o nome antigo). Não mede mudança em P(y|X). O sinal confiável é a queda de ROC-AUC (seção abaixo e `performance` no sumário). Com dados reais, o KS sozinho marcava `annuity_amount` em t0 (PSI 0,00) e `target` em t2 (PSI 0,02); `min_psi=0,10`, usado na demo, filtra esses alertas ([ADR-0005](adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)).
 
 Leitura: t1 prova Data Drift sem Concept Drift; t2 adiciona a mudança de rótulo. t0 permanece **sem** dataset drift frente à Referência (split estratificado da Etapa 1).
 
@@ -113,14 +117,14 @@ Leitura: t1 prova Data Drift sem Concept Drift; t2 adiciona a mudança de rótul
 
 | Fatia | ROC-AUC | Aprovação | Default na carteira aprovada | Default base |
 |---|---|---|---|---|
-| t0 | **0,7534** | 64,95% | **3,76%** | 8,07% |
-| t1 (data) | 0,7223 | 52,04% | 3,67% | 8,07% |
-| t2 (data+concept) | **0,5733** | 52,04% | **9,82%** | 11,75% |
+| t0 | **0,7533** | 64,57% | **3,74%** | 8,07% |
+| t1 (data) | 0,7224 | 51,84% | 3,67% | 8,07% |
+| t2 (data+concept) | **0,5720** | 51,84% | **9,84%** | 11,75% |
 
 - AUC em t0 (**0,753**) alinhado ao teste da Etapa 1 (**0,749**).
-- Queda de AUC t0→t2: **0,180**.
+- Queda de AUC t0→t2: **0,181** (limiar de alerta 0,05: t2 degradado, t1 não).
 - Em t1 o Evidently detecta drift nas três variáveis; o AUC cai pouco (−0,031) — lição do vídeo: *drift detectado ≠ modelo degradado* (e `income_total` tem importância baixa).
-- Em t2 o concept drift derruba o AUC e sobe a inadimplência da carteira aprovada (3,76% → 9,82%).
+- Em t2 o concept drift derruba o AUC e sobe a inadimplência da carteira aprovada (3,74% → 9,84%).
 
 ### Artefatos versionados
 
@@ -141,6 +145,8 @@ Para regenerar: `make data && make etapa2` (exige `data/raw/application_train.cs
 - [x] Evidências em `reports/drift/` (MD/JSON/HTML)
 - [x] Lotes driftados passam no contrato (qualidade ≠ estabilidade)
 - [x] ADR-0004 documentando a escolha do Evidently
+- [x] PSI por coluna + filtro de efeito opcional e queda de AUC como sinal de concept drift ([ADR-0005](adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md))
+- [x] `reports/drift/` regenerado com `make etapa2` (dataset real, 2026-10-25): artefatos versionados trazem `psi` e `performance`
 
 ## O que a Etapa 3 recebe pronto
 
@@ -149,4 +155,6 @@ Para regenerar: `make data && make etapa2` (exige `data/raw/application_train.cs
 | Eventos `drift_simulated`, `drift_detected`, `drift_demo`, `batch_scored` em `logs/pipeline.jsonl` | Centralizar métricas e alertas |
 | `reports/drift/*.json` | Painéis / histórico de drift por lote |
 | Comparativo t0/t1/t2 (AUC, aprovação, default) | Alertas de degradação de performance |
+| `performance.<fatia>.{drop,degraded}` no sumário JSON | Métrica de saúde do modelo (queda de AUC) e alerta |
+| `column_results[].{psi,psi_level}` + `min_psi` | Contar alertas de drift sem falso positivo de amostra grande |
 | Separação gate (contrato) vs Evidently (estabilidade) | Dois tipos de alerta distintos |

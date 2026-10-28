@@ -8,19 +8,31 @@ esquema e um sinal aprendivel (ext_source baixo -> mais default).
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 # Antes de qualquer import de `src`: os testes nao escrevem no log real do
-# pipeline (logs/pipeline.jsonl), que sera centralizado na Etapa 3.
+# pipeline (logs/pipeline.jsonl), que sera centralizado na Etapa 3, nem tocam
+# o mlflow.db/mlartifacts reais (os padroes abaixo apontam para um diretorio
+# temporario da sessao).
 os.environ["PIPELINE_LOG_FILE"] = str(
     Path(tempfile.gettempdir()) / "credit-drift-monitor-tests.jsonl"
+)
+os.environ["MLFLOW_ARTIFACT_ROOT"] = str(
+    Path(tempfile.mkdtemp(prefix="credit-drift-monitor-tests-")) / "mlartifacts"
+)
+os.environ["MLFLOW_TRACKING_URI"] = (
+    f"sqlite:///{Path(os.environ['MLFLOW_ARTIFACT_ROOT']).parent / 'mlflow.db'}"
 )
 
 import numpy as np  # noqa: E402
 import pandas as pd
 import pytest
 
+from src import config
 from src.validation import contract as c
 
 
@@ -67,6 +79,32 @@ def make_valid_df(n: int = 300, seed: int = 0, labeled: bool = True) -> pd.DataF
     return df
 
 
+def sha256_de(path: Path) -> str:
+    """sha256 de um arquivo (conferência de bundle/champion nos testes)."""
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def cliente_mlflow(uri: str):
+    """`MlflowClient` com tracking e registry no mesmo URI (o de `tracking_env`)."""
+    from mlflow import MlflowClient
+
+    return MlflowClient(tracking_uri=uri, registry_uri=uri)
+
+
+@pytest.fixture
+def champion_dir(tmp_path, monkeypatch) -> Path:
+    """`models/champion/` redirecionado para `tmp_path`."""
+    pasta = tmp_path / "models" / "champion"
+    monkeypatch.setattr(config, "CHAMPION_DIR", pasta)
+    monkeypatch.setattr(config, "CHAMPION_FILE", pasta / "baseline_model.joblib")
+    monkeypatch.setattr(
+        config, "CHAMPION_METADATA_FILE", pasta / "baseline_metadata.json"
+    )
+    return pasta
+
+
 @pytest.fixture
 def valid_df() -> pd.DataFrame:
     return make_valid_df()
@@ -75,3 +113,74 @@ def valid_df() -> pd.DataFrame:
 @pytest.fixture
 def valid_unlabeled_df() -> pd.DataFrame:
     return make_valid_df(labeled=False)
+
+
+@pytest.fixture(scope="session")
+def _banco_modelo_mlflow(tmp_path_factory) -> Path:
+    """Banco SQLite do MLflow ja migrado, criado uma vez por sessao.
+
+    A migracao leva ~2,4 s; copiar o arquivo para cada teste e quase instantaneo.
+    """
+    from mlflow import MlflowClient
+
+    caminho = tmp_path_factory.mktemp("mlflow-modelo") / "modelo.db"
+    uri = f"sqlite:///{caminho}"
+    MlflowClient(tracking_uri=uri, registry_uri=uri).search_experiments()
+    return caminho
+
+
+# Variaveis que o proprio MLflow grava no os.environ (set_tracking_uri,
+# set_registry_uri, set_experiment, start_run) para subprocessos herdarem.
+MLFLOW_ENV_VARS = (
+    "MLFLOW_TRACKING_URI",
+    "MLFLOW_REGISTRY_URI",
+    "MLFLOW_EXPERIMENT_ID",
+    "MLFLOW_RUN_ID",
+)
+
+
+@contextmanager
+def isolar_estado_mlflow() -> Iterator[None]:
+    """Desfaz o estado global do MLflow ao sair: runs ativos, URIs, experimento, ambiente.
+
+    Sem isso, um teste que configurou um banco inexistente (ou uma URI com senha)
+    deixaria o `os.environ` e o cliente fluente apontando para ela nos seguintes.
+    """
+    import mlflow
+    from mlflow.tracking import fluent
+
+    antes = {nome: os.environ.get(nome) for nome in MLFLOW_ENV_VARS}
+    try:
+        yield
+    finally:
+        while mlflow.active_run() is not None:
+            mlflow.end_run()
+        mlflow.set_tracking_uri(None)
+        mlflow.set_registry_uri(None)
+        fluent._active_experiment_id = None
+        for nome, valor in antes.items():
+            if valor is None:
+                os.environ.pop(nome, None)
+            else:
+                os.environ[nome] = valor
+
+
+@pytest.fixture
+def mlflow_isolado() -> Iterator[None]:
+    with isolar_estado_mlflow():
+        yield
+
+
+@pytest.fixture
+def tracking_env(tmp_path, monkeypatch, mlflow_isolado, _banco_modelo_mlflow) -> str:
+    """Aponta o MLflow para um banco novo e isolado em `tmp_path`; devolve o URI."""
+    banco = tmp_path / "mlflow.db"
+    shutil.copy(_banco_modelo_mlflow, banco)
+    uri = f"sqlite:///{banco}"
+    artefatos = tmp_path / "mlartifacts"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setenv("MLFLOW_ARTIFACT_ROOT", str(artefatos))
+    # `src.config` le o ambiente na importacao: reatribui as constantes tambem.
+    monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setattr(config, "MLFLOW_ARTIFACT_ROOT", artefatos)
+    return uri

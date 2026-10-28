@@ -1,0 +1,156 @@
+ai_guides_version: 2.9.0
+project:
+  purpose: pipeline-ml
+  stack:
+  - python
+  priorities:
+  - testes
+  - seguranca
+  - arquitetura
+guides:
+  harness-commit-memoria:
+    version: 7
+    applied_at: '2026-10-20T22:27:51'
+    status: pass
+    heuristics:
+      HARNESS-01: pass
+      HARNESS-02: pass
+      HARNESS-03: pass
+      HARNESS-04: pass
+      HARNESS-05: pass
+      HARNESS-06: pass
+      HARNESS-07: pass
+      HARNESS-08: pass
+      HARNESS-09: pass
+      HARNESS-10: pass
+      HARNESS-11: pass
+      HARNESS-12: pass
+      HARNESS-13: pass
+      HARNESS-15: pass
+      HARNESS-16: pass
+      HARNESS-14: pass
+  orquestracao-ciclo-de-vida-skills:
+    version: 2
+    applied_at: '2026-10-20T22:27:50'
+    status: pass
+    heuristics:
+      LIFE-01: pass
+      LIFE-02: pass
+  seguranca-zero-trust:
+    version: 4
+    applied_at: '2026-10-20T22:27:50'
+    status: pass
+    heuristics:
+      ZT-01: pass
+      ZT-02: skip
+      ZT-03: skip
+      ZT-04: pass
+      ZT-05: warn
+      ZT-06: warn
+      ZT-07: pass
+  graph-engineering:
+    version: 4
+    applied_at: '2026-10-20T22:27:52'
+    status: pass
+    heuristics:
+      GRAPH-01: pass
+      GRAPH-02: pass
+      GRAPH-04: pass
+      GRAPH-05: pass
+      GRAPH-06: pass
+      GRAPH-07: pass
+      GRAPH-08: pass
+      GRAPH-09: pass
+  padrao-criacao-adrs:
+    version: 4
+    applied_at: '2026-10-20T22:27:52'
+    status: pass
+    heuristics:
+      ADR-01: pass
+      ADR-02: pass
+      ADR-03: pass
+      ADR-04: pass
+      ADR-05: pass
+      ADR-06: skip
+      ADR-07: pass
+      ADR-08: pass
+  arquitetura-clean-code:
+    version: 6
+    applied_at: '2026-10-20T22:27:52'
+    status: pass
+    heuristics:
+      ARCH-01: pass
+      ARCH-02: pass
+      ARCH-03: pass
+      ARCH-04: skip
+      ARCH-05: pass
+      ARCH-06: pass
+  semver-versioning:
+    version: 2
+    applied_at: '2026-10-20T22:27:52'
+    status: pass
+    heuristics:
+      SEMVER-01: pass
+      SEMVER-02: pass
+      SEMVER-03: pass
+      SEMVER-04: pass
+  construcao-harness:
+    version: 4
+    applied_at: '2026-10-20T22:27:52'
+    status: pass
+    heuristics:
+      HN3-01: pass
+      HN3-02: pass
+      HN3-03: pass
+      HN3-04: pass
+      HN3-05: pass
+      HN3-06: pass
+      HN3-07: pass
+      HN3-08: pass
+      HN3-09: pass
+      HN3-10: pass
+      HN3-11: pass
+      HN3-12: pass
+  testing-backend:
+    version: 4
+    applied_at: '2026-10-20T22:27:53'
+    status: pass
+    heuristics:
+      TESTB-01: pass
+      TESTB-02: pass
+      TESTB-03: pass
+      TESTB-04: warn
+      TESTB-05: skip
+      TESTB-06: pass
+      TESTB-07: skip
+      TESTB-08: pass
+  1password-credentials:
+    status: skipped
+  ai-jail-sandbox:
+    status: skipped
+  notificacoes-openclaude:
+    status: skipped
+  domain-documentation-standards:
+    status: skipped
+  resiliencia-defensiva:
+    status: skipped
+  data-table-ui-ux:
+    status: skipped
+  dashboard-anti-slop:
+    status: skipped
+  liquid-glass:
+    status: skipped
+  product-design-ciclo:
+    status: skipped
+  ux-cognicao-comportamental:
+    status: skipped
+  design-universal-acessibilidade:
+    status: skipped
+  system-design-distribuidos:
+    status: skipped
+  scalar-openapi:
+    status: skipped
+  product-management-ciclo:
+    status: skipped
+  testing-frontend:
+    status: skipped

@@ -28,6 +28,19 @@ data/quarantine/*
 data/samples/*
 !data/**/.gitkeep
 
+# Observabilidade local (Etapa 3): banco e artefatos do MLflow, estado local do DVC
+/mlflow.db
+/mlartifacts
+/mlruns
+.dvc/config.local
+.dvc/cache
+.dvc/tmp
+# Estado local do Registry (champion servido) e saídas por lote dos comandos monitor e
+# retrain (relatórios do contrato; a evidência vai anexada ao run no MLflow)
+/models/champion/
+/reports/monitor/
+/reports/retrain/
+
 # Logs de execucao (as evidencias versionadas ficam em reports/)
 logs/
 
@@ -37,3 +50,16 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# ai-guides: memória privada local, team/ versionada
+.claude/memory/*
+!.claude/memory/team/
+.gemini/memory/*
+!.gemini/memory/team/
+graphify-out
+
+# Harness local (apenas .claude/ é versionado)
+.agents/
+.gemini/
+AGENTS.md
+CLAUDE.md

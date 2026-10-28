@@ -15,9 +15,9 @@ Todos os números abaixo vêm dos artefatos gerados pelos scripts (seed 42). Par
 | Ler o enunciado e revisar os pesos (Validação 25%, Drift 25%, Observabilidade 20%, Governança 15%, Vídeo 15%) | ✅ | Os itens de maior peso (Validação + Drift = 50%) guiaram as prioridades. |
 | Confirmar com a coordenação: prazo, formato e se é individual ou em grupo | ⏳ **grupo** | Ver [dúvidas para o Discord](#dúvidas-para-a-coordenação-discord). |
 | Combinar a divisão de responsabilidades | ⏳ **grupo** | Tabela "Equipe" no README. |
-| Selecionar o dataset (classificação binária financeira, ≥ 5.000 amostras) | ✅ | **Home Credit Default Risk**, com 307.511 linhas. O German Credit foi descartado por ter só 1.000. [ADR-0001](adr/0001-dataset-home-credit.md) |
-| Validar que o dataset comporta degradação econômica | ✅ | Tem renda, parcela, crédito, emprego, idade e scores de bureau. [ADR-0001](adr/0001-dataset-home-credit.md) |
-| Definir o algoritmo do modelo base | ✅ | XGBoost em Pipeline scikit-learn, com Regressão Logística para comparação. [ADR-0003](adr/0003-modelo-baseline-xgboost.md) |
+| Selecionar o dataset (classificação binária financeira, ≥ 5.000 amostras) | ✅ | **Home Credit Default Risk**, com 307.511 linhas. O German Credit foi descartado por ter só 1.000. [ADR-0001](adrs/0001-dataset-home-credit.md) |
+| Validar que o dataset comporta degradação econômica | ✅ | Tem renda, parcela, crédito, emprego, idade e scores de bureau. [ADR-0001](adrs/0001-dataset-home-credit.md) |
+| Definir o algoritmo do modelo base | ✅ | XGBoost em Pipeline scikit-learn, com Regressão Logística para comparação. [ADR-0003](adrs/0003-modelo-baseline-xgboost.md) |
 | Definir pelo menos 2 variáveis para o drift da Etapa 2 | ✅ | Ver [seção abaixo](#variáveis-definidas-para-o-drift-da-etapa-2). |
 | Registrar dúvidas do enunciado no Discord | ⏳ **grupo** | Mensagem pronta [abaixo](#dúvidas-para-a-coordenação-discord). |
 
@@ -70,7 +70,7 @@ Mensagem pronta, baseada nas ambiguidades listadas no checklist do grupo:
 | README inicial (título, contexto, sumário) | ✅ | [`README.md`](../README.md) |
 | Gerenciador de dependências | ✅ | **uv** + [`pyproject.toml`](../pyproject.toml), Python 3.12 (mesmo padrão da Fase 3) |
 | Scikit-Learn e XGBoost | ✅ | `scikit-learn`, `xgboost` |
-| Great Expectations **ou** Pandera, com a escolha documentada | ✅ | **Pandera**. [ADR-0002](adr/0002-pandera-data-contracts.md) |
+| Great Expectations **ou** Pandera, com a escolha documentada | ✅ | **Pandera**. [ADR-0002](adrs/0002-pandera-data-contracts.md) |
 | Lock file commitado | ✅ | [`uv.lock`](../uv.lock) |
 | Instalação limpa em ambiente novo | ✅ | Clone limpo → `uv sync --frozen` → `pytest` (41 testes passando) |
 | Seeds globais | ✅ | `SEED = 42` e `set_global_seed()` em [`src/config.py`](../src/config.py), além de `random_state` em todos os splits e modelos. Há um teste de reprodutibilidade em `tests/test_train.py`. |
@@ -113,10 +113,10 @@ A R9 (tempo de emprego ausente só para quem não está empregado) teve **zero**
 
 | Modelo | ROC-AUC | Gini | KS | PR-AUC | Recall (maus) | Aprovação | Default na carteira aprovada |
 |---|---|---|---|---|---|---|---|
-| **XGBoost (oficial)** | **0,7494** | **0,4989** | **0,3695** | **0,2434** | 0,6820 | 65,45% | **3,92%** |
+| **XGBoost (oficial)** | **0,7491** | **0,4982** | **0,3706** | **0,2435** | 0,6872 | 65,02% | **3,88%** |
 | Regressão Logística | 0,7307 | 0,4613 | 0,3429 | 0,2180 | 0,6403 | 67,41% | 4,31% |
 
-Na leitura de negócio: aprovando cerca de 65% dos pedidos, a inadimplência da carteira cai de 8,07% (taxa base) para 3,92%.
+Na leitura de negócio: aprovando cerca de 65% dos pedidos, a inadimplência da carteira cai de 8,07% (taxa base) para 3,88%.
 
 Artefatos versionados:
 - [`models/baseline_model.joblib`](../models/): pipeline completo, threshold, versão do modelo e versão do contrato.

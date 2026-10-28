@@ -1,9 +1,11 @@
-"""Deteccao de Data Drift e Concept Drift com Evidently (ADR-0004).
+"""Deteccao de Data Drift e Label Shift com Evidently (ADR-0004).
 
 Compara o Dataset de Referencia com um lote de producao (t0 / t1 / t2).
-O preset `DataDriftPreset` gera `ValueDrift` por coluna; a coluna `target`
-entra no mesmo relatorio para evidenciar Concept Drift (mudanca na
-distribuicao do rotulo / relacao X->y).
+O preset `DataDriftPreset` gera `ValueDrift` por coluna (KS / chi-quadrado);
+o PSI (src/drift/psi.py) acompanha cada coluna como medida de tamanho do
+efeito. A coluna `target` entra no mesmo relatorio, mas o teste sobre ela
+detecta apenas mudanca de PREVALENCIA do rotulo (label shift); a degradacao
+de performance (queda de ROC-AUC) esta em src/drift/performance.py.
 
     uv run python -m src.drift.detect \\
         --reference data/reference/reference.parquet \\
@@ -31,10 +33,19 @@ from src.config import (
     REFERENCE_FILE,
     TARGET_COLUMN,
 )
+from src.drift.psi import population_stability_index, psi_level
 from src.drift.report import write_drift_reports
 from src.logging_utils import get_logger, log_event
 
 logger = get_logger("drift.detect")
+
+
+class DriftParsingError(RuntimeError):
+    """O Snapshot do Evidently nao trouxe nenhum `ValueDrift` por coluna.
+
+    Sem esse bloqueio o lote sairia "estavel" por ausencia de dados (falha
+    aberta), por exemplo apos uma troca de formato numa versao nova da lib.
+    """
 
 
 @dataclass
@@ -44,6 +55,8 @@ class ColumnDrift:
     statistic: float
     threshold: float
     drifted: bool
+    psi: float | None = None
+    psi_level: str | None = None
 
 
 @dataclass
@@ -56,12 +69,22 @@ class DriftResult:
     drifted_share: float
     dataset_drift: bool
     column_results: list[ColumnDrift] = field(default_factory=list)
-    concept_drift: bool = False
+    label_shift: bool = False
     duration_ms: float = 0.0
     report_paths: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Serializa o resultado (JSON dos relatorios e sumario da demo).
+
+        `label_shift` indica mudanca de prevalencia do `target` (PSI/KS), nao
+        concept drift: este e a queda de desempenho (`performance.degraded`,
+        ADR-0005). `concept_drift` e emitido com o mesmo valor so por
+        compatibilidade com relatorios antigos e e OBSOLETO: sera removido na
+        Etapa 4.
+        """
+        payload = asdict(self)
+        payload["concept_drift"] = self.label_shift
+        return payload
 
 
 def _default_columns(df: pd.DataFrame, *, include_target: bool) -> list[str]:
@@ -132,9 +155,15 @@ def _parse_snapshot(
             )
         )
 
-    if not n_drifted and column_results:
+    if not column_results:
+        raise DriftParsingError(
+            "Snapshot do Evidently sem ValueDrift por coluna: formato inesperado "
+            "(versao incompativel?). Drift nao pode ser avaliado."
+        )
+
+    if not n_drifted:
         n_drifted = sum(1 for c in column_results if c.drifted)
-        share = n_drifted / len(column_results) if column_results else 0.0
+        share = n_drifted / len(column_results)
 
     return n_drifted, share, column_results
 
@@ -148,9 +177,18 @@ def run_drift_detection(
     include_target: bool = True,
     drift_share: float = 0.3,
     threshold: float = 0.05,
+    min_psi: float | None = None,
+    model_version: str | None = None,
     report_dir: Path | None = DRIFT_REPORTS_DIR,
 ) -> DriftResult:
-    """Roda Evidently DataDriftPreset e grava relatorios HTML/JSON."""
+    """Roda Evidently DataDriftPreset e grava relatorios HTML/JSON.
+
+    Todo `ColumnDrift` recebe o PSI. Por padrao a decisao `drifted` segue so o
+    p-valor; com `min_psi` (ex.: `PSI_MODERATE`) a coluna so e marcada quando
+    o teste e significativo E o efeito e relevante, o que elimina alertas de
+    ruido em amostras grandes (ADR-0005). `model_version` so entra no log do
+    evento, para ligar o alerta ao modelo que estava em producao.
+    """
     cols = columns or _default_columns(current, include_target=include_target)
     cols = [c for c in cols if c in reference.columns and c in current.columns]
     if not cols:
@@ -176,6 +214,13 @@ def run_drift_detection(
     duration_ms = (time.perf_counter() - started) * 1000
 
     n_drifted_preset, share_preset, column_results = _parse_snapshot(snapshot.dict())
+    for col in column_results:
+        col.psi = round(
+            population_stability_index(reference[col.column], current[col.column]), 6
+        )
+        col.psi_level = psi_level(col.psi)
+        if min_psi is not None and col.psi < min_psi:
+            col.drifted = False
     # Preferimos a contagem a partir dos ValueDrift (p < threshold), que e
     # a mesma regra usada no sumario por coluna; o DriftedColumnsCount do
     # Evidently fica como fallback.
@@ -185,8 +230,8 @@ def run_drift_detection(
     else:
         n_drifted, share = n_drifted_preset, share_preset
     dataset_drift = share >= drift_share
-    concept = next((c for c in column_results if c.column == TARGET_COLUMN), None)
-    concept_drift = bool(concept and concept.drifted)
+    target_col = next((c for c in column_results if c.column == TARGET_COLUMN), None)
+    label_shift = bool(target_col and target_col.drifted)
 
     result = DriftResult(
         batch_name=batch_name,
@@ -197,7 +242,7 @@ def run_drift_detection(
         drifted_share=round(share, 4),
         dataset_drift=dataset_drift,
         column_results=column_results,
-        concept_drift=concept_drift,
+        label_shift=label_shift,
         duration_ms=round(duration_ms, 2),
     )
 
@@ -210,8 +255,10 @@ def run_drift_detection(
         logger,
         "drift_detected",
         batch_name=batch_name,
+        model_version=model_version,
+        min_psi=min_psi,
         dataset_drift=dataset_drift,
-        concept_drift=concept_drift,
+        label_shift=label_shift,
         n_drifted_columns=n_drifted,
         drifted_share=round(share, 4),
         duration_ms=result.duration_ms,
@@ -222,11 +269,17 @@ def run_drift_detection(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Detecta Data/Concept Drift (Evidently) entre referencia e corrente."
+        description="Detecta Data Drift e Label Shift (Evidently) entre referencia e corrente."
     )
     parser.add_argument("--reference", type=Path, default=REFERENCE_FILE)
     parser.add_argument("--current", type=Path, default=PRODUCTION_T1_FILE)
     parser.add_argument("--batch-name", type=str, default=None)
+    parser.add_argument(
+        "--min-psi",
+        type=float,
+        default=None,
+        help="so marca drift se PSI >= valor (ex.: 0.10); padrao: so p-valor",
+    )
     args = parser.parse_args(argv)
 
     for path in (args.reference, args.current):
@@ -238,18 +291,21 @@ def main(argv: list[str] | None = None) -> int:
     current = pd.read_parquet(args.current)
     batch_name = args.batch_name or args.current.stem
 
-    result = run_drift_detection(reference, current, batch_name=batch_name)
+    result = run_drift_detection(
+        reference, current, batch_name=batch_name, min_psi=args.min_psi
+    )
     status = "DATASET_DRIFT" if result.dataset_drift else "ESTAVEL"
     print(
         f"[{status}] lote={result.batch_name} "
         f"colunas_driftadas={result.n_drifted_columns}/{len(result.columns_checked)} "
         f"share={result.drifted_share:.2%} "
-        f"concept_drift={result.concept_drift}"
+        f"label_shift={result.label_shift}"
     )
     for col in result.column_results:
         flag = "DRIFT" if col.drifted else "ok"
         print(
-            f"  [{flag}] {col.column}: {col.method}={col.statistic} (thr={col.threshold})"
+            f"  [{flag}] {col.column}: {col.method}={col.statistic} "
+            f"(thr={col.threshold}) psi={col.psi} ({col.psi_level})"
         )
     if result.report_paths:
         print("Relatorios:", ", ".join(result.report_paths.values()))

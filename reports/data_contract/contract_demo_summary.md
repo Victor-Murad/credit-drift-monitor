@@ -1,6 +1,6 @@
 # Demonstracao do Data Contract -- bloqueio de lote invalido
 
-Gerado por `src/validation/demo.py` em 2026-10-05T21:15:42.775890+00:00 (seed 42).
+Gerado por `src/validation/demo.py` em 2026-10-27T10:38:22.131947+00:00 (seed 42).
 
 | Lote | Arquivo | Resultado do gate | Registros pontuados pelo modelo |
 |---|---|---|---|

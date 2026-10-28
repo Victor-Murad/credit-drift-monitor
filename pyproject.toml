@@ -5,18 +5,25 @@ description = "Camada de sustentacao e confiabilidade de um modelo de Credit Sco
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # Modelo base de risco de credito (Etapa 1 -- ver docs/adr/0003)
+    # Modelo base de risco de credito (Etapa 1 -- ver docs/adrs/0003)
     "scikit-learn>=1.5",
     "xgboost>=2.1",
     "joblib>=1.4",
-    # Data Contracts (Etapa 1 -- ver docs/adr/0002)
+    # Data Contracts (Etapa 1 -- ver docs/adrs/0002)
     "pandera>=0.24",
     # Manipulacao de dados
     "pandas>=2.2",
     "numpy>=1.26",
     "pyarrow>=17.0",
-    # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adr/0004)
-    "evidently>=0.4.40",
+    # Deteccao de Data/Concept Drift (Etapa 2 -- ver docs/adrs/0004)
+    # Teto <0.8: o parser de detect.py le nomes internos do Snapshot.
+    "evidently>=0.7,<0.8",
+    # Observabilidade e Model Registry locais (Etapa 3 -- ver docs/adrs/0006)
+    # Teto <4: a API de aliases do Registry e o backend SQLite sao os da 3.x.
+    "mlflow>=3.0,<4",
+    # Serializacao segura do modelo logado no MLflow (padrao do mlflow.sklearn
+    # 3.x; src/monitoring/registry.py declara os tipos confiaveis).
+    "skops>=0.16,<0.17",
 ]
 
 [dependency-groups]
@@ -31,6 +38,10 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "pyyaml>=6.0",
+    "import-linter>=2.0",
+    "pytest-xdist>=3.8.0",
+    # Versionamento local dos dados (Etapa 3 -- ver docs/adrs/0006); so dev.
+    "dvc>=3.50,<4",
 ]
 
 [tool.uv]
@@ -46,12 +57,57 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+# Clean Code (guia de arquitetura §7.5/§7.2): except silencioso e complexidade
+extend-select = ["E722", "BLE001", "S110", "C901"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
 
+[tool.importlinter]
+root_package = "src"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dominio nao importa frameworks web/HTTP/ORM"
+type = "forbidden"
+source_modules = ["src.config", "src.validation.contract", "src.models.features"]
+forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "httpx"]
+
+[[tool.importlinter.contracts]]
+name = "Camadas: monitoring -> drift -> models -> validation (nunca o inverso)"
+type = "layers"
+layers = ["src.monitoring", "src.drift", "src.models", "src.validation"]
+# A demo do contrato e orquestracao (pontua um lote com o modelo): fica no
+# topo de fato, embora more em src.validation.
+ignore_imports = ["src.validation.demo -> src.models.predict"]
+
+[[tool.importlinter.contracts]]
+name = "MLflow/DVC so na camada de monitoring"
+type = "forbidden"
+source_modules = [
+    "src.drift",
+    "src.models",
+    "src.validation",
+    "src.data",
+    "src.config",
+]
+forbidden_modules = ["mlflow", "dvc"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+# Meta do repositorio: >= 80%. Cobertura atual ~95%; nunca reduzir.
+fail_under = 80
+show_missing = true
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q --strict-markers"
+filterwarnings = [
+    # Aviso emitido pelo proprio MLflow (sqlalchemy_store.py) ao configurar o
+    # mapeamento do SQLAlchemy; nao ha o que corrigir no nosso codigo.
+    "ignore:The ``noload`` loader strategy is deprecated:sqlalchemy.exc.SADeprecationWarning",
+]
 testpaths = ["tests"]
 pythonpath = ["."]
