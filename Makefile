@@ -1,4 +1,4 @@
-.PHONY: help setup download-data pipeline data train contract-demo demo-drift drift-demo monitor retrain promote rollback tracking-ui repro validate predict etapa1 simulate-drift detect-drift etapa2 test test-cov lint format clean
+.PHONY: help setup download-data pipeline data train contract-demo demo-drift drift-demo monitor retrain promote rollback tracking-ui repro validate predict etapa1 simulate-drift detect-drift etapa2 fairness test test-cov lint format clean
 
 # uv e obrigatorio (mesmo padrao da Fase 3): garante que todo o grupo rode
 # no mesmo ambiente, travado pelo uv.lock.
@@ -49,6 +49,7 @@ help:
 	@echo "make simulate-drift - Gera fatias t1 (data) e t2 (concept) a partir de production_base"
 	@echo "make detect-drift   - Evidently: referencia vs CURRENT (padrao: t1)"
 	@echo "make etapa2         - Apelido: demo-drift"
+	@echo "make fairness [BATCH=<lote rotulado>] - Etapa 4: auditoria de vies por genero e faixa etaria"
 	@echo "make test           - Testes (pytest)"
 	@echo "make lint / format  - Ruff"
 
@@ -128,6 +129,10 @@ detect-drift:
 	$(PYTHON) -m src.drift.detect --current $(or $(CURRENT),data/production/production_t1_data_drift.parquet)
 
 etapa2: demo-drift
+
+# Etapa 4: auditoria de vies (padrao: production_base, nunca visto no treino).
+fairness:
+	$(PYTHON) -m src.governance.fairness $(if $(BATCH),--batch "$(BATCH)",)
 
 test:
 	$(PYTHON) -m pytest

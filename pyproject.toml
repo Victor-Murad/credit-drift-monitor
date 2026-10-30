@@ -74,9 +74,10 @@ source_modules = ["src.config", "src.validation.contract", "src.models.features"
 forbidden_modules = ["fastapi", "django", "flask", "sqlalchemy", "requests", "httpx"]
 
 [[tool.importlinter.contracts]]
-name = "Camadas: monitoring -> drift -> models -> validation (nunca o inverso)"
+name = "Camadas: monitoring | governance -> drift -> models -> validation (nunca o inverso)"
 type = "layers"
-layers = ["src.monitoring", "src.drift", "src.models", "src.validation"]
+# governance (auditoria de vies, Etapa 4) e monitoring sao irmas independentes.
+layers = ["src.monitoring | src.governance", "src.drift", "src.models", "src.validation"]
 # A demo do contrato e orquestracao (pontua um lote com o modelo): fica no
 # topo de fato, embora more em src.validation.
 ignore_imports = ["src.validation.demo -> src.models.predict"]
@@ -85,6 +86,7 @@ ignore_imports = ["src.validation.demo -> src.models.predict"]
 name = "MLflow/DVC so na camada de monitoring"
 type = "forbidden"
 source_modules = [
+    "src.governance",
     "src.drift",
     "src.models",
     "src.validation",
