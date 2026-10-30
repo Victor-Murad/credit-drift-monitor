@@ -1,11 +1,11 @@
 # Roteiro do vídeo STAR (até 5 minutos)
 
-> Todos os números vêm de artefatos versionados no repositório. Ao lado de cada fala está o arquivo de onde ela sai. Não acrescente resultados que não estejam nesses arquivos. A auditoria de fairness **não** tem resultado real: não cite números dela.
+> Todos os números vêm de artefatos versionados no repositório. Ao lado de cada fala está o arquivo de onde ela sai. Não acrescente resultados que não estejam nesses arquivos. Os números de fairness vêm de `reports/governance/production_base_fairness.md`.
 
 ## Preparação (antes de gravar)
 
 1. Numa máquina com `data/raw/application_train.csv`, rode `make pipeline`. No Windows, sem `make`, rode os quatro estágios com `uv run python -m src.monitoring.stage <estágio>`. O pipeline regenera os relatórios e o `mlflow.db`.
-2. Opcional: `make fairness`. Só mostre o resultado se ele tiver sido gerado nessa execução.
+2. Rode `make fairness` (no Windows: `uv run python -m src.governance.fairness`) para regenerar `reports/governance/production_base_fairness.md`.
 3. Abra em abas: o README no GitHub, `reports/data_contract/invalid_batch_report.html`, `reports/drift/production_t1_data_drift_drift_report.html`, `reports/drift/production_t2_concept_drift_drift_report.html`, `reports/drift/drift_demo_summary.md` e o MLflow UI (`make tracking-ui`, em http://127.0.0.1:5001).
 4. Deixe um terminal pronto na raiz do repositório.
 
@@ -19,11 +19,11 @@ Se os números da nova execução diferirem dos abaixo (por exemplo, diferença 
 
 ## T — Tarefa (0:40–1:10)
 
-**Fala:** "A tarefa é construir a camada de sustentação: barrar dado ruim antes do modelo, detectar drift com estatística, observar o pipeline e documentar governança e LGPD. O modelo base é um XGBoost com ROC-AUC de 0,749 no teste e KS de 0,371."
+**Fala:** "A tarefa é construir a camada de sustentação: barrar dado ruim antes do modelo, detectar drift com estatística, observar o pipeline e documentar governança e LGPD. O modelo base é um XGBoost com ROC-AUC de 0,749 no teste e KS de 0,370."
 
 **Tela:** tabela "Requisitos obrigatórios do repositório" no README; depois `reports/model/baseline_metrics.md`.
 
-## A — Ação (1:10–3:30)
+## A — Ação (1:10–3:45)
 
 ### 1. Data Contract (1:10–1:50)
 
@@ -41,21 +41,21 @@ Se os números da nova execução diferirem dos abaixo (por exemplo, diferença 
 
 **Ponto técnico a citar:** "O teste sobre o `target` em t2 mede só a prevalência do rótulo. O PSI dele é 0,018, estável, mas a AUC cai 0,181. Concept drift se vê pela performance, não pelo teste de distribuição."
 
-### 3. Observabilidade (2:50–3:15)
+### 3. Observabilidade (2:50–3:10)
 
 **Fala:** "Cada estágio e cada lote vira um run no MLflow local, com saúde, latência, volume, PSI, AUC e um nível de alerta. O retreino só roda a partir de um alerta crítico, e a promoção do novo modelo é uma decisão humana, auditada."
 
 **Tela:** MLflow UI, experimento `credit-drift-monitor`, runs de lote com a tag do nível de alerta. Fonte dos números: `docs/ai/reports/2026-10-27-etapa3-aceite.md`.
 
-### 4. Governança e LGPD (3:15–3:30)
+### 4. Governança e LGPD (3:10–3:45)
 
-**Fala:** "Na governança: lemos 21 das 122 colunas; gênero fica fora do modelo e serve só para a auditoria de viés, que está implementada; a base legal principal é a proteção do crédito, no art. 7º, X; e, como a decisão é automatizada, o art. 20 garante ao titular o direito de pedir revisão. Separamos o que está implementado do que ainda é recomendação, como a política de retenção."
+**Fala:** "Na governança: lemos só 21 das 122 colunas, e gênero fica fora do modelo. A base legal é a proteção do crédito, no art. 7º, X, e, como a decisão é automatizada, o art. 20 garante ao titular o direito de pedir revisão. A auditoria de viés achou um problema real: por gênero, a razão de impacto é 0,90; por idade, é 0,46. Entre bons pagadores, um jovem de 18 a 24 anos é aprovado em 41% dos casos, e um idoso, em 84%. Isso ficou documentado como achado que exige revisão humana antes de produção."
 
-**Tela:** README, seção 4.1 (tabelas de base legal e de retenção, com as marcações [implementado] e [recomendação]).
+**Tela:** README, seção 4.1 (tabelas de base legal e de retenção, com as marcações [implementado] e [recomendação]); depois `reports/governance/production_base_fairness.md` (tabela por faixa etária).
 
-## R — Resultado (3:30–4:45)
+## R — Resultado (3:45–4:45)
 
-**Fala:** "O resultado é que a degradação deixou de ser silenciosa. Em t0 o alerta é OK, com AUC de 0,753. Em t1 é ATENÇÃO: há drift em três colunas e a aprovação cai de 64,6% para 51,8%. Em t2 é CRÍTICO: a AUC cai para 0,572 e a inadimplência na carteira aprovada sobe de 3,7% para 9,8%. Como cada fatia muda uma coisa só, conseguimos separar as causas: 0,031 da queda de AUC vem do choque nas features e 0,150 da mudança de conceito, ou seja, 83%. No retreino, o challenger ganhou 0,13 de AUC no holdout. E o lote sujo foi bloqueado antes de ser pontuado."
+**Fala:** "O resultado é que a degradação deixou de ser silenciosa. Em t0 o alerta é OK, com AUC de 0,753. Em t1 é ATENÇÃO: há drift em três colunas e a aprovação cai de 65,0% para 52,0%. Em t2 é CRÍTICO: a AUC cai para 0,573 e a inadimplência na carteira aprovada sobe de 3,8% para 9,8%. Como cada fatia muda uma coisa só, conseguimos separar as causas: 0,031 da queda de AUC vem do choque nas features e 0,149 da mudança de conceito, ou seja, 83%. No retreino, o challenger ganhou 0,13 de AUC no holdout. E o lote sujo foi bloqueado antes de ser pontuado."
 
 **Telas:** tabela de impacto em `reports/drift/drift_demo_summary.md`; tabela da análise causal no README (seção 4.3); `reports/drift/production_t2_concept_drift_drift_report.html`.
 

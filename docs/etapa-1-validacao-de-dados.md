@@ -113,7 +113,7 @@ A R9 (tempo de emprego ausente só para quem não está empregado) teve **zero**
 
 | Modelo | ROC-AUC | Gini | KS | PR-AUC | Recall (maus) | Aprovação | Default na carteira aprovada |
 |---|---|---|---|---|---|---|---|
-| **XGBoost (oficial)** | **0,7491** | **0,4982** | **0,3706** | **0,2435** | 0,6872 | 65,02% | **3,88%** |
+| **XGBoost (oficial)** | **0,7494** | **0,4989** | **0,3695** | **0,2434** | 0,6820 | 65,45% | **3,92%** |
 | Regressão Logística | 0,7307 | 0,4613 | 0,3429 | 0,2180 | 0,6403 | 67,41% | 4,31% |
 
 Na leitura de negócio: aprovando cerca de 65% dos pedidos, a inadimplência da carteira cai de 8,07% (taxa base) para 3,88%.

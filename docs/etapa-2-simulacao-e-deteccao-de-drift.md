@@ -117,14 +117,14 @@ Leitura: t1 prova Data Drift sem Concept Drift; t2 adiciona a mudança de rótul
 
 | Fatia | ROC-AUC | Aprovação | Default na carteira aprovada | Default base |
 |---|---|---|---|---|
-| t0 | **0,7533** | 64,57% | **3,74%** | 8,07% |
-| t1 (data) | 0,7224 | 51,84% | 3,67% | 8,07% |
-| t2 (data+concept) | **0,5720** | 51,84% | **9,84%** | 11,75% |
+| t0 | **0,7534** | 64,95% | **3,76%** | 8,07% |
+| t1 (data) | 0,7223 | 52,04% | 3,67% | 8,07% |
+| t2 (data+concept) | **0,5733** | 52,04% | **9,82%** | 11,75% |
 
 - AUC em t0 (**0,753**) alinhado ao teste da Etapa 1 (**0,749**).
-- Queda de AUC t0→t2: **0,181** (limiar de alerta 0,05: t2 degradado, t1 não).
+- Queda de AUC t0→t2: **0,180** (limiar de alerta 0,05: t2 degradado, t1 não).
 - Em t1 o Evidently detecta drift nas três variáveis; o AUC cai pouco (−0,031) — lição do vídeo: *drift detectado ≠ modelo degradado* (e `income_total` tem importância baixa).
-- Em t2 o concept drift derruba o AUC e sobe a inadimplência da carteira aprovada (3,74% → 9,84%).
+- Em t2 o concept drift derruba o AUC e sobe a inadimplência da carteira aprovada (3,76% → 9,82%).
 
 ### Artefatos versionados
 

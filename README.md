@@ -198,7 +198,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | `Uma política de Controle de Aplicativo bloqueou este arquivo` (os error 4551 / `DLL load failed`) | O **Smart App Control** do Windows 11 bloqueia as DLLs do pandas/numpy | Desligar em *Segurança do Windows → Controle de aplicativos e do navegador → Smart App Control*     |
 | `ModuleNotFoundError: sklearn...` mesmo com o arquivo existindo                                       | O caminho passa de 260 caracteres (limite do Windows)                        | Clonar o repositório numa pasta de caminho curto (ex.: `C:\dev\`) ou ativar *Long Paths* no Windows |
 | `403 Forbidden` no download do Kaggle                                                                 | As regras da competição não foram aceitas                                 | Clicar em *Late Submission → I Understand and Accept* na página da competição                      |
-| `XGBoostError: input stream corrupted` ao carregar `models/baseline_model.joblib`                       | O artefato versionado foi treinado no macOS; o pickle do XGBoost guarda o `rng_state` no formato da biblioteca C++ do macOS, que o Windows não lê (ver nota na [ADR-0003](docs/adrs/0003-modelo-baseline-xgboost.md)) | Retreinar localmente com `make pipeline` (ou `uv run python -m src.monitoring.stage train`) |
+| `XGBoostError: input stream corrupted` ao carregar um `.joblib` antigo                                  | Bundle gravado antes da correção de portabilidade: o pickle do booster do XGBoost guarda o estado interno, que não é portável entre sistemas operacionais. Desde então o booster é gravado no formato de modelo do XGBoost ([`src/models/portable.py`](src/models/portable.py), nota na [ADR-0003](docs/adrs/0003-modelo-baseline-xgboost.md)) | Retreinar com `make pipeline` (ou `uv run python -m src.monitoring.stage train`) |
 | `make: command not found`                                                                               | O Windows não traz o GNU make                                                | Usar os equivalentes `uv run ...` da tabela acima                                                         |
 
 ## Etapa 1 — Validação de Dados e Contratos
@@ -218,7 +218,7 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Registros brutos rejeitados pelo contrato | 21 de 307.511 (renda de 117 mi, gênero `XNA`, parcela nula…)                                                                     |
 | Dataset de Referência / Produção t0    | 215.243 / 92.247 linhas (default 8,07% em ambos)                                                                                     |
-| Baseline XGBoost (teste)                  | ROC-AUC **0,749** · Gini **0,498** · KS **0,371** (Regressão Logística: AUC 0,731)                             |
+| Baseline XGBoost (teste)                  | ROC-AUC **0,749** · Gini **0,499** · KS **0,370** (Regressão Logística: AUC 0,731)                             |
 | Impacto no negócio                       | aprova 65% dos pedidos, e a inadimplência da carteira cai de 8,07% para **3,88%**                                             |
 | Demonstração do contrato                | lote válido **APROVADO** (500 pontuados); lote sujo **BLOQUEADO** (0 pontuados); **10 de 10** defeitos detectados |
 
@@ -241,8 +241,8 @@ Reprodutibilidade: `SEED = 42` é fixada em todos os passos (`src/config.py`) e 
 | Gate em t0 / t1 / t2 | todos **APROVADOS** (drift ≠ dado inválido)                                        |
 | Evidently t0         | sem dataset drift (AUC **0,753**, alinhado ao baseline)                              |
 | Evidently t1         | **Data Drift** em `annuity_amount` (PSI 0,17), `ext_source_3` (0,97), `income_total` (0,76); AUC 0,722 |
-| Evidently t2         | mesmo Data Drift; label shift em `target` com efeito desprezível (PSI 0,02); **queda de AUC 0,181 → modelo degradado** (AUC **0,572**) |
-| Impacto no negócio  | default na carteira aprovada: 3,74% (t0) → **9,84%** (t2)                           |
+| Evidently t2         | mesmo Data Drift; label shift em `target` com efeito desprezível (PSI 0,02); **queda de AUC 0,180 → modelo degradado** (AUC **0,573**) |
+| Impacto no negócio  | default na carteira aprovada: 3,76% (t0) → **9,82%** (t2)                           |
 | Lição              | t1 detecta drift com queda leve de AUC; t2 (concept) degrada de fato                       |
 
 > **Limitação conhecida (concept drift):** o teste do Evidently sobre `target` mede mudança de *prevalência* do rótulo (label/prior shift), não mudança em P(y|X); por isso o campo é `label_shift` em `DriftResult` e nos relatórios JSON (o antigo `concept_drift` segue como alias obsoleto; a remoção foi adiada para a próxima regeneração dos relatórios com o dataset, ver a 2ª emenda da [ADR-0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)). O sinal confiável de concept drift é a **queda de ROC-AUC** com rótulos de feedback (`performance` no sumário da demo). Sem rótulos (inferência pura) só é possível monitorar data drift e PSI. Em t0, o KS sozinho marca `annuity_amount` por ruído de amostra grande (PSI 0,00); a demo usa `min_psi=0,10` e, com isso, t0 fica sem nenhuma coluna marcada. Pelo mesmo critério, o teste sobre `target` em t2 deixa de alertar (PSI 0,02) enquanto o AUC cai 0,181: é a prova de que só a performance revela o concept drift.
@@ -279,13 +279,13 @@ A regra é uma função pura, em [`src/monitoring/alerts.py`](src/monitoring/ale
 
 **Piso de `ATENÇÃO` para anomalias:** um lote vazio (`empty_batch`), uma AUC não finita (`auc_undefined`) ou um PSI do score não finito (`score_psi_undefined`) nunca terminam `OK`. Eles sobem no mínimo a `ATENÇÃO`, com o motivo nas `alert_reasons`. É um máximo: o piso nunca rebaixa um nível maior. `no_baseline_auc` (lote rotulado sem AUC de referência) e `single_class` entram nos motivos sem piso.
 
-### Resultado real (Home Credit, seed 42, `pipeline_run_id` `20261027T103457Z`)
+### Resultado real (Home Credit, seed 42, `pipeline_run_id` `20261030T024043Z`)
 
 | Lote | Nível | Motivos | ROC-AUC | Queda de AUC | PSI do score |
 | :--- | :--- | :--- | ---: | ---: | ---: |
-| t0 (`production_t0`) | `OK` | nenhum | 0,7533 | 0,0000 | 0,0003 |
-| t1 (`production_t1_data_drift`) | `ATENÇÃO` | `drift:annuity_amount`, `drift:ext_source_3`, `drift:income_total`, `score_psi>=0.10` | 0,7224 | 0,0309 | 0,1431 |
-| t2 (`production_t2_concept_drift`) | `CRÍTICO` | `auc_drop>=0.05` e os mesmos de t1 | 0,5720 | 0,1813 | 0,1431 |
+| t0 (`production_t0`) | `OK` | nenhum | 0,7534 | 0,0000 | 0,0003 |
+| t1 (`production_t1_data_drift`) | `ATENÇÃO` | `drift:annuity_amount`, `drift:ext_source_3`, `drift:income_total`, `score_psi>=0.10` | 0,7223 | 0,0311 | 0,1455 |
+| t2 (`production_t2_concept_drift`) | `CRÍTICO` | `auc_drop>=0.05` e os mesmos de t1 | 0,5733 | 0,1801 | 0,1455 |
 | lote inválido da demo do contrato | `BLOQUEADO` | as regras violadas (R1 a R8 e R10); `intentional_demo=true` | não avaliada | | |
 
 No estágio `contract_demo`, `alerts_failure_count` = 1 e `rows_rejected` = 508. No `drift_demo`, `alerts_drift_count` = 2.
@@ -295,7 +295,7 @@ No estágio `contract_demo`, `alerts_failure_count` = 1 e `rows_rejected` = 508.
 ```bash
 make pipeline                  # os 4 estágios, sempre executados, com um único PIPELINE_RUN_ID
 make tracking-ui               # MLflow UI em http://127.0.0.1:5001 (a 5000 colide com o AirPlay no macOS)
-make monitor BATCH=data/production/production_t2_concept_drift.parquet [BASELINE_AUC=0.7533]
+make monitor BATCH=data/production/production_t2_concept_drift.parquet [BASELINE_AUC=0.7534]
 make demo-drift                # só o estágio drift_demo (apelidos: drift-demo, etapa2)
 make retrain                   # treina o challenger a partir do alerta CRITICO (nunca promove)
 make promote                   # comando humano: promove o challenger, se elegível
@@ -488,7 +488,7 @@ A **base legal do tratamento** responde "posso tratar estes dados?" (arts. 7º e
 - **Viés histórico:** discriminação passada nas concessões ou na cobrança fica codificada nos rótulos.
 - **Scores de terceiros:** `ext_source_2` e `ext_source_3` são as variáveis mais importantes e não são auditáveis por dentro. Podem carregar viés do bureau.
 - **Proxies de atributos protegidos:** retirar `gender` não basta ("fairness by unawareness"). `income_type = "Maternity leave"` é proxy direto de gênero; `"Pensioner"`, `family_status = "Widow"` e `housing_type = "With parents"` se associam à idade; `region_rating` pode refletir desigualdade regional e socioeconômica. Essas associações são **hipóteses** e não foram medidas.
-- **Idade como feature:** `age_years` entra no modelo (9ª em importância, queda de AUC de 0,0026 na permutação). O uso pode ser estatisticamente legítimo, mas pode ter efeito discriminatório contra pessoas idosas [validação jurídica: Estatuto da Pessoa Idosa, Lei 10.741/2003].
+- **Idade como feature:** `age_years` entra no modelo (9ª em importância, queda de AUC de 0,0029 na permutação). O uso pode ser estatisticamente legítimo, mas pode ter efeito discriminatório contra pessoas idosas [validação jurídica: Estatuto da Pessoa Idosa, Lei 10.741/2003].
 
 **Identificação: auditoria executável [implementado].** [`src/governance/fairness.py`](src/governance/fairness.py) ([ADR-0008](docs/adrs/0008-auditoria-de-vies-sem-dependencia-nova.md)) pontua um lote rotulado atrás do mesmo gate e mede, por gênero e por faixa etária (18-24, 25-34, 35-44, 45-59, 60+):
 
@@ -505,7 +505,31 @@ make fairness                         # padrão: production_base (t0), nunca vis
 make fairness BATCH=<lote rotulado>   # saída em reports/governance/<lote>_fairness.{json,md}
 ```
 
-**Resultado com dados reais: não produzido.** O dataset não estava disponível na máquina da Etapa 4 (ver [Validação de reprodutibilidade](#validação-de-reprodutibilidade)). As métricas estão testadas com valores conferidos à mão em [`tests/test_fairness.py`](tests/test_fairness.py), mas **nenhum número de fairness é citado aqui**. A primeira execução com o dataset deve versionar o relatório em `reports/governance/`.
+**Resultado com dados reais [implementado].** Lote `production_base` (t0, 92.247 linhas, nunca visto no treino), modelo `baseline-v1`. Relatório completo em [`reports/governance/production_base_fairness.md`](reports/governance/production_base_fairness.md) (só agregados por grupo, sem registros individuais).
+
+| Atributo | Grupo | n | Default real | Aprovação | Aprovação entre bons pagadores | Default na carteira aprovada | ROC-AUC |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gênero | F | 60.688 | 6,98% | 67,35% | 69,93% | 3,42% | 0,750 |
+| Gênero | M | 31.559 | 10,17% | 60,33% | 64,13% | 4,51% | 0,751 |
+| Idade | 18-24 | 3.695 | 12,48% | **37,86%** | **41,16%** | 4,86% | 0,704 |
+| Idade | 25-34 | 21.629 | 10,69% | 50,91% | 54,58% | 4,26% | 0,743 |
+| Idade | 35-44 | 25.395 | 8,58% | 63,90% | 67,09% | 4,01% | 0,749 |
+| Idade | 45-59 | 30.754 | 6,43% | 72,65% | 74,97% | 3,45% | 0,752 |
+| Idade | 60+ | 10.774 | 4,79% | **82,91%** | **84,19%** | 3,32% | 0,710 |
+
+| Atributo | Razão de impacto disparatado | Diferença de paridade | Diferença de igualdade de oportunidade | Revisão necessária |
+| :--- | ---: | ---: | ---: | :--- |
+| Gênero | 0,896 | 7,0 p.p. | 5,8 p.p. | não |
+| Faixa etária | **0,457** | **45,1 p.p.** | **43,0 p.p.** | **sim** |
+
+**Leitura.**
+
+- **Gênero:** a razão de impacto (0,896) fica acima da referência de 0,80. As mulheres são mais aprovadas, coerente com a inadimplência real menor do grupo (6,98% contra 10,17%), e o score ordena igualmente bem os dois grupos (ROC-AUC 0,750 e 0,751). Excluir `gender` do modelo não eliminou a diferença de 5,8 p.p. entre bons pagadores, que deve continuar monitorada.
+- **Idade: achado que exige revisão humana.** A razão de impacto é 0,457, muito abaixo de 0,80: quem tem de 18 a 24 anos é aprovado em 37,9% dos casos, contra 82,9% de quem tem 60 anos ou mais. Parte da diferença reflete risco real (a inadimplência cai de 12,5% para 4,8% com a idade), mas **a diferença persiste entre bons pagadores**: um jovem que paga em dia tem 41,2% de chance de aprovação, contra 84,2% de um idoso que também paga (igualdade de oportunidade de 43,0 p.p.). O score também ordena pior nas pontas (ROC-AUC 0,704 entre 18-24 e 0,710 entre 60+, contra 0,75 nas faixas centrais).
+- **Origem provável [hipótese]:** `age_years` é feature direta (9ª em importância), e `years_employed`, `ext_source_2/3` e `income_type = "Pensioner"` carregam informação de idade. Retirar só `age_years` provavelmente reduz, mas não elimina, a diferença.
+- **Enquadramento [validação jurídica]:** idade não é dado sensível pelo art. 5º, II, mas o princípio da não discriminação (art. 6º, IX) veda tratamento discriminatório ilícito ou abusivo. Usar a idade como fator de risco pode ser legítimo se for justificado e proporcional; uma diferença deste tamanho entre bons pagadores precisa dessa justificativa documentada antes de o modelo ir para produção.
+
+**Próximos passos propostos [recomendação]:** (1) treinar uma variante sem `age_years` e comparar AUC e razão de impacto (troca entre desempenho e equidade); (2) medir a associação das demais features com a idade; (3) se a diferença entre bons pagadores persistir, avaliar reponderação ou restrições de fairness; (4) incluir a auditoria no fluxo de promoção do challenger.
 
 **Estratégias de mitigação**
 
@@ -526,7 +550,7 @@ make fairness BATCH=<lote rotulado>   # saída em reports/governance/<lote>_fair
 **Natureza da evidência.** O Home Credit não tem dimensão temporal. A degradação deste projeto é **simulada** por intervenções controladas sobre o lote t0 ([`src/drift/simulate.py`](src/drift/simulate.py)), não observada no tempo:
 
 - **t0 → t1:** só as features mudam (`annuity_amount` × 1,25; `ext_source_3` − 0,15; `income_total` × 1,15, com clip nos limites do contrato). O `target` não muda (default de 8,07% nos dois).
-- **t1 → t2:** as features são **idênticas** (mesmos PSIs e mesmo PSI do score, 0,1431). Só o rótulo muda: 25% dos bons pagadores com `ext_source_3` ≥ 0,55 viram default.
+- **t1 → t2:** as features são **idênticas** (mesmos PSIs e mesmo PSI do score, 0,1455). Só o rótulo muda: 25% dos bons pagadores com `ext_source_3` ≥ 0,55 viram default.
 
 Como cada passo muda uma única coisa e o modelo é o mesmo, a diferença de desempenho entre fatias vizinhas é **atribuível à intervenção**. É um experimento, não uma correlação. Isso vale **dentro da simulação**: a causa da degradação de um modelo real (inflação, novos perfis) não pode ser provada com este dataset.
 
@@ -534,22 +558,22 @@ Como cada passo muda uma única coisa e o modelo é o mesmo, a diferença de des
 
 | Fatia | Contrato | Colunas com drift (PSI) | ROC-AUC | Aprovação | Default na carteira aprovada | Alerta |
 | :--- | :--- | :--- | ---: | ---: | ---: | :--- |
-| t0 | aprovado | nenhuma | 0,7533 | 64,57% | 3,74% | `OK` |
-| t1 | aprovado | `annuity_amount` (0,17), `ext_source_3` (0,97), `income_total` (0,76) | 0,7224 | 51,84% | 3,67% | `ATENÇÃO` |
-| t2 | aprovado | as mesmas de t1; `target`: qui-quadrado com p ≈ 0, mas PSI 0,018 | 0,5720 | 51,84% | 9,84% | `CRÍTICO` |
+| t0 | aprovado | nenhuma | 0,7534 | 64,95% | 3,76% | `OK` |
+| t1 | aprovado | `annuity_amount` (0,17), `ext_source_3` (0,97), `income_total` (0,76) | 0,7223 | 52,04% | 3,67% | `ATENÇÃO` |
+| t2 | aprovado | as mesmas de t1; `target`: qui-quadrado com p ≈ 0, mas PSI 0,018 | 0,5733 | 52,04% | 9,82% | `CRÍTICO` |
 
-A queda total de AUC (0,1813) se decompõe em **0,0309** (t0 → t1, choque nas features) e **0,1504** (t1 → t2, mudança de P(y|X)), ou seja, 83% da queda vem da mudança de conceito.
+A queda total de AUC (0,1801) se decompõe em **0,0311** (t0 → t1, choque nas features) e **0,1490** (t1 → t2, mudança de P(y|X)), ou seja, 83% da queda vem da mudança de conceito.
 
 | # | Fator | Classificação | Evidência | Impacto no modelo | Mitigação |
 | :-: | :--- | :--- | :--- | :--- | :--- |
-| 1 | Mudança na relação X → y (concept drift simulado) | **Causa comprovada** (na simulação) | t1 e t2 têm features idênticas e o mesmo modelo; só o rótulo difere; AUC 0,7224 → 0,5720 | Score perde poder de ordenação; inadimplência aprovada de 3,67% → 9,84% | Alerta `CRÍTICO` por queda de AUC com rótulos de feedback; retreino guardado pelo alerta. No aceite, o challenger ganhou +0,1316 de AUC no holdout do t2 ([ADR-0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md)) |
-| 2 | Choque conjunto nas três features (data drift) | **Causa comprovada** (na simulação), do conjunto | t0 → t1 com rótulos inalterados: AUC −0,0309, aprovação de 64,57% → 51,84% | Sobretudo na **política**: o modelo fica mais conservador e recusa mais, com inadimplência aprovada estável (3,74% → 3,67%) | Alerta `ATENÇÃO` (KS e PSI ≥ 0,10, PSI do score); investigar antes de retreinar |
-| 3 | Contribuição de cada feature no item 2 | **Hipótese** | Os três choques foram aplicados juntos. Indício: `ext_source_3` é a variável mais importante (0,057 na permutação) e `income_total` fica fora do top 10 | Provável predominância de `ext_source_3` | [recomendação] ablação: simular um choque por vez |
-| 4 | Mecanismo da queda de AUC em t1 sem mudança de rótulo | **Hipótese** | Não medido. (a) O clip de `ext_source_3` em 0 cria empates (p05 da referência = 0,1547, então perto de 5% dos valores não nulos colapsam em 0). (b) Choques de tamanhos diferentes alteram as razões derivadas (`annuity_to_income` × 1,087; `credit_to_annuity` × 0,8) | Pequeno (−0,0309) | Mesma ablação, com medição de empates |
+| 1 | Mudança na relação X → y (concept drift simulado) | **Causa comprovada** (na simulação) | t1 e t2 têm features idênticas e o mesmo modelo; só o rótulo difere; AUC 0,7223 → 0,5733 | Score perde poder de ordenação; inadimplência aprovada de 3,67% → 9,82% | Alerta `CRÍTICO` por queda de AUC com rótulos de feedback; retreino guardado pelo alerta. No aceite, o challenger ganhou +0,1316 de AUC no holdout do t2 ([ADR-0007](docs/adrs/0007-retreino-registry-e-promocao-humana.md)) |
+| 2 | Choque conjunto nas três features (data drift) | **Causa comprovada** (na simulação), do conjunto | t0 → t1 com rótulos inalterados: AUC −0,0311, aprovação de 64,95% → 52,04% | Sobretudo na **política**: o modelo fica mais conservador e recusa mais, com inadimplência aprovada estável (3,76% → 3,67%) | Alerta `ATENÇÃO` (KS e PSI ≥ 0,10, PSI do score); investigar antes de retreinar |
+| 3 | Contribuição de cada feature no item 2 | **Hipótese** | Os três choques foram aplicados juntos. Indício: `ext_source_3` é a variável mais importante (0,058 na permutação) e `income_total` fica fora do top 10 | Provável predominância de `ext_source_3` | [recomendação] ablação: simular um choque por vez |
+| 4 | Mecanismo da queda de AUC em t1 sem mudança de rótulo | **Hipótese** | Não medido. (a) O clip de `ext_source_3` em 0 cria empates (p05 da referência = 0,1547, então perto de 5% dos valores não nulos colapsam em 0). (b) Choques de tamanhos diferentes alteram as razões derivadas (`annuity_to_income` × 1,087; `credit_to_annuity` × 0,8) | Pequeno (−0,0311) | Mesma ablação, com medição de empates |
 | 5 | Tamanho do PSI de `income_total` (0,76 para um choque de 15%) | **Hipótese** técnica | A renda é concentrada em valores redondos (p05, p50 e p95 da referência: 67.500, 146.250 e 337.500). O choque multiplicativo desloca blocos inteiros de massa entre faixas de quantil | O PSI superestima o efeito em variáveis discretizadas; não afeta o modelo (baixa importância) | Ler o PSI junto com a importância; [recomendação] faixas fixas para variáveis com valores repetidos |
 | 6 | Mudança na distribuição do alvo (label shift) | **Evidência, não causa principal** | Default de 8,07% → 11,75% em t2. O qui-quadrado é significativo, mas o PSI de 0,018 é "estável" | A prevalência sozinha não explica a queda: o que muda é o rótulo na região de `ext_source_3` alto, onde o modelo vê baixo risco | Monitorar `label_shift`, sem tratá-lo como alerta de concept drift ([ADR-0005](docs/adrs/0005-psi-e-queda-de-auc-como-sinais-de-drift.md)) |
 | 7 | Qualidade dos dados e falha de pipeline | **Descartada** para t0–t2 | As três fatias passaram no contrato; o modelo é o mesmo (sha256 conferido); só 21 de 307.511 linhas brutas foram rejeitadas (0,007%) | nenhum | Gate fail-closed: dado inválido é `BLOQUEADO` e nunca chega a ser pontuado |
-| 8 | Diferença entre referência e produção sem drift | **Descartada** | t0: nenhuma coluna marcada; AUC 0,7533 contra 0,7491 no teste do treino; PSI do score 0,0003 | nenhum | Separação física e estratificada referência/produção |
+| 8 | Diferença entre referência e produção sem drift | **Descartada** | t0: nenhuma coluna marcada; AUC 0,7534 contra 0,7494 no teste do treino; PSI do score 0,0003 | nenhum | Separação física e estratificada referência/produção |
 | 9 | Causas econômicas reais (inflação, novos perfis, mudança de comportamento) | **Hipótese não testável** com este dataset | Os choques **representam** essas causas (inflação → parcela e renda nominais maiores; piora dos bureaus → `ext_source_3` menor; mudança de comportamento → concept drift), mas não as observam | — | [recomendação] lotes reais datados com rótulos de feedback; correlacionar alertas com indicadores macro, sem tratar correlação como causa |
 
 **Limitação.** Sem rótulos de feedback, só o data drift e o PSI do score são observáveis: o concept drift (item 1) só aparece quando os rótulos chegam, com atraso. Nesse intervalo, um alerta `ATENÇÃO` é o único sinal, e ele não prova que o modelo piorou.
@@ -605,14 +629,28 @@ Os testes pulados precisam de `make` (ausente no Windows), de privilégio para c
 
 **Correções feitas nesta validação:** medição de memória de pico no Windows via `psapi` (só biblioteca padrão); testes que usavam `/proc/inexistente` como caminho impossível agora usam um caminho sob um arquivo, impossível em qualquer sistema operacional (no Windows, o `/proc/...` era criável e os testes falhavam).
 
+### Execução com dados reais no Windows (2026-10-30)
+
+Execução completa com o dataset, Windows 11, `pipeline_run_id` `20261030T024043Z`. **Os artefatos versionados (modelo, relatórios e `dvc.lock`) e os números deste README vêm desta execução.**
+
+| Passo | Comando | Resultado |
+| :--- | :--- | :--- |
+| Pipeline | `uv run python -m src.monitoring.stage <prepare, train, contract_demo, drift_demo>` | os 4 estágios com sucesso; alertas `OK` (t0), `ATENÇÃO` (t1), `CRÍTICO` (t2) e `BLOQUEADO` (lote inválido) |
+| Auditoria de viés | `uv run python -m src.governance.fairness` | relatório em `reports/governance/` ([4.2](#42-mitigação-de-vieses-algorítmicos)) |
+| Testes | `uv run pytest -n auto` | **445 passaram, 32 pulados, 0 falhas** (o aceite real, que exige o dataset e o `mlflow.db`, passa a rodar) |
+| DVC | `uv run dvc status` | `Data and pipelines are up to date` |
+
+**Correção feita nesta execução: modelo portável entre sistemas operacionais.** O bundle treinado no macOS falhava no Windows com `XGBoostError: input stream corrupted`, porque o pickle do booster guarda o estado interno do XGBoost, que não é portável entre plataformas. O booster passou a ser gravado no formato de modelo do XGBoost (`save_raw("json")`, [`src/models/portable.py`](src/models/portable.py)) e é reconstruído no `load_bundle`; as predições da ida e volta são idênticas (`tests/test_portable.py`). Em relação à execução no macOS, os números mudam só na 3ª ou 4ª casa decimal (ex.: AUC do t0 0,7533 → 0,7534).
+
+**Dica para Windows:** se o `dvc` falhar com `WinError 3`, o caminho do cache passou de 260 caracteres. Aponte o cache para uma pasta curta, só na sua máquina: `uv run dvc cache dir --local C:/dvc-cache` (grava em `.dvc/config.local`, fora do git).
+
 ## Limitações conhecidas
 
 - **Dataset e credenciais:** o pipeline real exige o CSV do Kaggle (licença proíbe redistribuir) e, para o download automático, um token. Sem eles, só os testes sintéticos rodam.
 - **Degradação simulada:** a análise causal prova causas dentro da simulação, não no mundo real ([4.3](#43-análise-causal-da-degradação-do-modelo-ambiguidade-2)).
-- **Artefato do modelo entre sistemas operacionais:** `models/baseline_model.joblib` foi treinado no macOS e não carrega no Windows (formato do `rng_state` no pickle do XGBoost). O sha256 confere. No Windows, retreine localmente. Correção definitiva, que exige retreino: persistir o booster com `save_model` ([ADR-0003](docs/adrs/0003-modelo-baseline-xgboost.md)).
 - **Concept drift exige rótulos:** sem feedback, só o data drift e o PSI do score são observáveis.
 - **Campo `statistic` dos relatórios de drift:** guarda o **p-valor** do teste (KS ou qui-quadrado), não a estatística D. A decisão (p < 0,05) está correta; o nome engana e foi mantido para não quebrar o esquema dos JSON.
-- **Fairness sem resultado real:** a auditoria está implementada e testada, mas não foi executada com o dataset.
+- **Viés por idade sem mitigação:** a auditoria encontrou razão de impacto de 0,457 entre faixas etárias ([4.2](#42-mitigação-de-vieses-algorítmicos)). O achado está medido e documentado, mas a mitigação (variante sem `age_years`, reponderação) é recomendação, não implementação.
 - **LGPD:** retenção, mascaramento de exemplos, revisão humana de decisões individuais e *reason codes* são recomendações, não implementações.
 - **Alertas sem notificação ativa:** o nível de alerta fica no MLflow e no código de saída; nada envia e-mail ou mensagem.
 - **Alias `concept_drift`:** ainda presente nos JSON de drift; sai na próxima regeneração dos relatórios (2ª emenda da ADR-0005).
