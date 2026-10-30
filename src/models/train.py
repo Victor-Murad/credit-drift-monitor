@@ -55,6 +55,7 @@ from src.logging_utils import get_logger, log_event
 from src.models.features import add_ratio_features, model_input
 from src.models.integrity import file_sha256
 from src.models.metrics import evaluate, ks_threshold, score_distribution
+from src.models.portable import to_portable
 from src.validation.contract import CONTRACT_VERSION
 from src.validation.gate import enforce_contract
 
@@ -357,7 +358,8 @@ def save_bundle(
     raiz). Altera e devolve o proprio `metadata`.
     """
     model_file.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(bundle, model_file)
+    # Booster no formato de modelo do XGBoost: portavel entre sistemas operacionais.
+    joblib.dump(to_portable(bundle), model_file)
     metadata["artifact"] = {
         "file": artifact_file or project_relative(model_file),
         "sha256": file_sha256(model_file),

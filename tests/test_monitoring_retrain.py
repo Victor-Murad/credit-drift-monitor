@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 import shutil
 from functools import partial
+from pathlib import Path
 from types import SimpleNamespace
 
-import joblib
 import pandas as pd
 import pytest
 from sklearn.metrics import roc_auc_score
@@ -436,9 +436,9 @@ def test_retrain_marca_alerta_consumido_e_registra_tags(
     assert pai.data.tags["stage"] == "retrain"
 
     # O bundle anexado carrega a versão própria e o score_reference do challenger.
-    # joblib (pickle) só em artefatos que o próprio teste acabou de gerar.
+    # load_bundle confere o sha256 e reconstrói o booster portável.
     baixado = cliente.download_artifacts(run.info.run_id, "bundle", str(tmp_path))
-    bundle = joblib.load(f"{baixado}/baseline_model.joblib")
+    bundle = predict.load_bundle(Path(baixado) / "baseline_model.joblib")
     with open(f"{baixado}/baseline_metadata.json", encoding="utf-8") as fh:
         metadata = json.load(fh)
     assert bundle["model_version"] == tags["bundle_model_version"]
@@ -466,7 +466,9 @@ def test_retrain_avalia_champion_e_challenger_no_mesmo_holdout(
     baixado = cliente_mlflow(com_alerta).download_artifacts(
         run.info.run_id, "bundle", str(tmp_path)
     )
-    desafiante = joblib.load(f"{baixado}/baseline_model.joblib")["pipeline"]
+    desafiante = predict.load_bundle(Path(baixado) / "baseline_model.joblib")[
+        "pipeline"
+    ]
 
     auc_campeao = roc_auc_score(alvo, campeao.predict_proba(model_input(holdout))[:, 1])
     auc_desafiante = roc_auc_score(

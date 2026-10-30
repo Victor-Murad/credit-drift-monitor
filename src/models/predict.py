@@ -28,6 +28,7 @@ from src.models.integrity import (
     file_sha256,
     verify_model_integrity,
 )
+from src.models.portable import restore_booster
 from src.validation.gate import DataContractViolation, enforce_contract
 from src.validation.io import read_batch
 
@@ -68,7 +69,7 @@ def load_bundle(
                 "O arquivo não é o champion registrado no Model Registry."
             )
     # joblib e pickle: so desserializamos o arquivo cujo hash foi conferido acima.
-    return joblib.load(path)
+    return restore_booster(joblib.load(path))
 
 
 def score_batch(
