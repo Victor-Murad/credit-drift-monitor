@@ -6,6 +6,7 @@ Data       | Autor          | Descrição
 --------------------------------------------------------------------------------
 2026-10-25 | Eduardo Batista | Criação da ADR 0005 detalhando PSI e queda de ROC-AUC como sinais complementares ao KS.
 2026-10-26 | Eduardo Batista | Nota de emenda ao item 4: `DriftResult.concept_drift` renomeado para `label_shift`, com alias legado no JSON até a Etapa 4.
+2026-10-29 | Etapa 4 | Segunda emenda ao item 4: remoção do alias `concept_drift` adiada para a próxima regeneração dos relatórios com o dataset.
 ================================================================================
 -->
 
@@ -38,6 +39,8 @@ A ADR-0004 adotou o Evidently com teste KS (numéricas) e qui-quadrado (categór
 4. O campo `concept_drift` de `DriftResult` permanece por compatibilidade, mas é documentado como **label shift**; o sumário o rotula assim.
 
 > **Nota de emenda (2026-10-26) ao item 4:** o campo foi renomeado para `DriftResult.label_shift` (Etapa 3, spec de observabilidade §4.6). O que o teste sobre o `target` mede (KS + PSI) é label shift, isto é, mudança de prevalência do rótulo; **concept drift é a queda de desempenho** (`performance.degraded`, item 3), e é só ele que alimenta o alerta de concept drift em `decide_alert_level`. Por compatibilidade com relatórios JSON antigos, `DriftResult.to_dict()` continua emitindo `concept_drift` com o mesmo valor de `label_shift`; esse alias é **obsoleto e será removido na Etapa 4**. O texto original do item 4 acima fica preservado como histórico; os relatórios em `reports/drift/` serão regenerados com o campo novo na regeneração da Etapa 3, sem perder validade enquanto isso (leem-se pelo alias). Os nomes de lote `production_t2_concept_drift` (arquivo/fatia que simula concept drift nos dados) não mudam.
+
+> **Segunda emenda (2026-10-29, Etapa 4) ao item 4:** a remoção do alias `concept_drift` foi **adiada**. Os relatórios versionados em `reports/drift/` ainda trazem a chave, e regenerá-los exige o dataset do Kaggle, que não está disponível na máquina da Etapa 4. Remover o alias só no código deixaria código e evidência divergentes. A remoção acontece junto com a próxima regeneração dos relatórios (`make pipeline` com o dataset). Nenhum consumidor interno lê `concept_drift`: o alerta lê `label_shift` e `performance.degraded`.
 
 ### Matriz de Avaliação de Alternativas (Trade-off Matrix)
 

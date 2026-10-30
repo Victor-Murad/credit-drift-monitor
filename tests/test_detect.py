@@ -84,7 +84,7 @@ def test_driftresult_expoe_label_shift_e_alias_legado(tmp_path, monkeypatch) -> 
 
     payload = result.to_dict()
     assert payload["label_shift"] is True
-    # Alias obsoleto, mantido para relatorios antigos (removido na Etapa 4).
+    # Alias obsoleto, mantido para relatorios antigos (ADR-0005, 2a emenda).
     assert payload["concept_drift"] == payload["label_shift"]
     assert not hasattr(result, "concept_drift")
     detectado = dict(eventos)["drift_detected"]

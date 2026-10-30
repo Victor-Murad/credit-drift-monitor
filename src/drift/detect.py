@@ -79,8 +79,8 @@ class DriftResult:
         `label_shift` indica mudanca de prevalencia do `target` (PSI/KS), nao
         concept drift: este e a queda de desempenho (`performance.degraded`,
         ADR-0005). `concept_drift` e emitido com o mesmo valor so por
-        compatibilidade com relatorios antigos e e OBSOLETO: sera removido na
-        Etapa 4.
+        compatibilidade com relatorios antigos e e OBSOLETO: sai junto com a
+        proxima regeneracao dos relatorios com o dataset (ADR-0005, 2a emenda).
         """
         payload = asdict(self)
         payload["concept_drift"] = self.label_shift
