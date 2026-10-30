@@ -37,11 +37,17 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 def project_relative(path: Path) -> str:
     """Caminho relativo a raiz do repo (evita gravar caminhos da maquina local
-    nos relatorios versionados)."""
-    try:
-        return path.resolve().relative_to(ROOT_DIR).as_posix()
-    except ValueError:
-        return path.as_posix()
+    nos relatorios versionados).
+
+    Tenta primeiro o caminho sem seguir links simbolicos: num worktree o CSV
+    bruto e um symlink para o checkout principal, e o `resolve()` sozinho
+    gravava o caminho absoluto (com o nome do usuario) no relatorio."""
+    for candidate in (path.absolute(), path.resolve()):
+        try:
+            return candidate.relative_to(ROOT_DIR).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
 
 
 DATA_DIR = ROOT_DIR / "data"
