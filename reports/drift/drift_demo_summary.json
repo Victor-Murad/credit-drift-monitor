@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-27T10:38:26.727947+00:00",
+  "generated_at": "2026-10-30T02:41:33.411237+00:00",
   "seed": 42,
   "evidently_sample_size": 15000,
   "min_psi": 0.1,
@@ -9,16 +9,16 @@
       "n_rows": 92247,
       "contract": "APROVADO",
       "metrics": {
-        "roc_auc": 0.7533,
-        "gini": 0.5065,
-        "ks": 0.3774,
-        "pr_auc": 0.2371,
-        "brier": 0.0681,
-        "precision": 0.1597,
-        "recall": 0.7008,
-        "f1": 0.2601,
-        "approval_rate": 0.6457,
-        "default_rate_approved": 0.0374,
+        "roc_auc": 0.7534,
+        "gini": 0.5069,
+        "ks": 0.3781,
+        "pr_auc": 0.2369,
+        "brier": 0.0682,
+        "precision": 0.1606,
+        "recall": 0.6972,
+        "f1": 0.261,
+        "approval_rate": 0.6495,
+        "default_rate_approved": 0.0376,
         "default_rate_base": 0.0807
       },
       "path": "data/production/production_base.parquet"
@@ -27,15 +27,15 @@
       "n_rows": 92247,
       "contract": "APROVADO",
       "metrics": {
-        "roc_auc": 0.7224,
-        "gini": 0.4449,
-        "ks": 0.3228,
+        "roc_auc": 0.7223,
+        "gini": 0.4446,
+        "ks": 0.3239,
         "pr_auc": 0.2064,
-        "brier": 0.0709,
-        "precision": 0.1282,
-        "recall": 0.7646,
-        "f1": 0.2195,
-        "approval_rate": 0.5184,
+        "brier": 0.071,
+        "precision": 0.1285,
+        "recall": 0.7633,
+        "f1": 0.2199,
+        "approval_rate": 0.5204,
         "default_rate_approved": 0.0367,
         "default_rate_base": 0.0807
       },
@@ -45,16 +45,16 @@
       "n_rows": 92247,
       "contract": "APROVADO",
       "metrics": {
-        "roc_auc": 0.572,
-        "gini": 0.144,
-        "ks": 0.1485,
-        "pr_auc": 0.1855,
+        "roc_auc": 0.5733,
+        "gini": 0.1467,
+        "ks": 0.146,
+        "pr_auc": 0.1857,
         "brier": 0.1044,
-        "precision": 0.138,
-        "recall": 0.5658,
-        "f1": 0.2219,
-        "approval_rate": 0.5184,
-        "default_rate_approved": 0.0984,
+        "precision": 0.1384,
+        "recall": 0.5649,
+        "f1": 0.2223,
+        "approval_rate": 0.5204,
+        "default_rate_approved": 0.0982,
         "default_rate_base": 0.1175
       },
       "path": "data/production/production_t2_concept_drift.parquet"
@@ -143,7 +143,7 @@
         }
       ],
       "label_shift": false,
-      "duration_ms": 290.0,
+      "duration_ms": 567.15,
       "report_paths": {
         "html": "reports/drift/production_t0_drift_report.html",
         "json": "reports/drift/production_t0_drift_report.json"
@@ -232,7 +232,7 @@
         }
       ],
       "label_shift": false,
-      "duration_ms": 265.44,
+      "duration_ms": 434.97,
       "report_paths": {
         "html": "reports/drift/production_t1_data_drift_drift_report.html",
         "json": "reports/drift/production_t1_data_drift_drift_report.json"
@@ -321,7 +321,7 @@
         }
       ],
       "label_shift": false,
-      "duration_ms": 268.73,
+      "duration_ms": 434.77,
       "report_paths": {
         "html": "reports/drift/production_t2_concept_drift_drift_report.html",
         "json": "reports/drift/production_t2_concept_drift_drift_report.json"
@@ -332,25 +332,25 @@
   "performance": {
     "production_t0": {
       "metric": "roc_auc",
-      "baseline": 0.7533,
-      "current": 0.7533,
+      "baseline": 0.7534,
+      "current": 0.7534,
       "drop": 0.0,
       "threshold": 0.05,
       "degraded": false
     },
     "production_t1_data_drift": {
       "metric": "roc_auc",
-      "baseline": 0.7533,
-      "current": 0.7224,
-      "drop": 0.0309,
+      "baseline": 0.7534,
+      "current": 0.7223,
+      "drop": 0.0311,
       "threshold": 0.05,
       "degraded": false
     },
     "production_t2_concept_drift": {
       "metric": "roc_auc",
-      "baseline": 0.7533,
-      "current": 0.572,
-      "drop": 0.1813,
+      "baseline": 0.7534,
+      "current": 0.5733,
+      "drop": 0.1801,
       "threshold": 0.05,
       "degraded": true
     }

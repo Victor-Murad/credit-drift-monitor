@@ -7,8 +7,8 @@
   "n_columns": 21,
   "n_failure_cases": 0,
   "rules_violated": [],
-  "duration_ms": 17.62,
-  "validated_at": "2026-10-27T10:38:26.273771+00:00",
+  "duration_ms": 40.49,
+  "validated_at": "2026-10-30T02:41:32.023386+00:00",
   "report_files": {
     "json": "reports/drift/contract_gate/production_t2_concept_drift_report.json",
     "html": "reports/drift/contract_gate/production_t2_concept_drift_report.html"

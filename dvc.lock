@@ -9,8 +9,8 @@ stages:
       size: 166133370
     - path: src/config.py
       hash: md5
-      md5: 27ae759dba8e7aacf529683cd0d35097
-      size: 8043
+      md5: 2790a72a5a14bdb9342c6ce7931340d0
+      size: 8344
     - path: src/data/prepare.py
       hash: md5
       md5: f244b7d91db12e5c0c4dc9be3b39039a
@@ -21,9 +21,9 @@ stages:
       size: 2848
     - path: src/monitoring
       hash: md5
-      md5: 5a993fdb63598d2d157b3b94e2762561.dir
-      size: 74191
-      nfiles: 8
+      md5: fbb5d04be9c3b07259d8740e674393ca.dir
+      size: 161735
+      nfiles: 11
     - path: src/validation
       hash: md5
       md5: 86a5438a1a06def96ca226dce7b2a137.dir
@@ -36,37 +36,37 @@ stages:
       size: 2639837
     - path: data/reference/reference.parquet
       hash: md5
-      md5: ecb8a730c6ceb7f23c4822c25349a1ad
+      md5: 57243d3cec885acd40781389bb18a70d
       size: 5550533
     - path: reports/data_contract/reference_build_report.json
       hash: md5
-      md5: 52471a5b8f3cb858472cd268660e2230
+      md5: b07f6c1fb41ba2eaef50027448029fec
       size: 4134
   train:
     cmd: uv run python -m src.monitoring.stage train
     deps:
     - path: data/reference/reference.parquet
       hash: md5
-      md5: ecb8a730c6ceb7f23c4822c25349a1ad
+      md5: 57243d3cec885acd40781389bb18a70d
       size: 5550533
     - path: src/config.py
       hash: md5
-      md5: 27ae759dba8e7aacf529683cd0d35097
-      size: 8043
+      md5: 2790a72a5a14bdb9342c6ce7931340d0
+      size: 8344
     - path: src/logging_utils.py
       hash: md5
       md5: 73f18918316168b42df64abc265cff2d
       size: 2848
     - path: src/models
       hash: md5
-      md5: a39129fc05ee14d3b93fbb8af8a6f8d7.dir
-      size: 22151
-      nfiles: 6
+      md5: cb33adf305a122518b00b2310c496b55.dir
+      size: 26615
+      nfiles: 7
     - path: src/monitoring
       hash: md5
-      md5: 5a993fdb63598d2d157b3b94e2762561.dir
-      size: 74191
-      nfiles: 8
+      md5: fbb5d04be9c3b07259d8740e674393ca.dir
+      size: 161735
+      nfiles: 11
     - path: src/validation
       hash: md5
       md5: 86a5438a1a06def96ca226dce7b2a137.dir
@@ -75,24 +75,24 @@ stages:
     outs:
     - path: models/baseline_metadata.json
       hash: md5
-      md5: b136255157a22908460ac46645501c0e
-      size: 5331
+      md5: 22528f3c55ac5b805a3e095c0f02fdd6
+      size: 5336
     - path: models/baseline_model.joblib
       hash: md5
-      md5: 766bad057925238b48b15e86bf9f6881
-      size: 827460
+      md5: fb9593441f0cd9bff3f5a91b8c94d41a
+      size: 1014715
     - path: reports/data_contract/reference_training_report.html
       hash: md5
-      md5: 5403c2ede3a9680cf15ef0df5c1412f6
-      size: 1909
+      md5: e47cc2a62d2d5b03afc796a882921da5
+      size: 1910
     - path: reports/data_contract/reference_training_report.json
       hash: md5
-      md5: d206fac375ba599ecfed76fbca6bfb33
-      size: 490
+      md5: 1f70bc6cc14047218ffd794720a0294d
+      size: 491
     - path: reports/model/baseline_metrics.md
       hash: md5
-      md5: be9642a0b6aa6994a60bc6608954b50c
-      size: 1064
+      md5: 71b2bf43389afb25180df72f3946a9c9
+      size: 1069
   contract_demo:
     cmd: uv run python -m src.monitoring.stage contract_demo
     deps:
@@ -102,26 +102,34 @@ stages:
       size: 2639837
     - path: models/baseline_model.joblib
       hash: md5
-      md5: 766bad057925238b48b15e86bf9f6881
-      size: 827460
+      md5: fb9593441f0cd9bff3f5a91b8c94d41a
+      size: 1014715
+    - path: models/champion/baseline_metadata.json
+      hash: md5
+      md5: 74e3ec9f591233d83a47283a91ab9ba0
+      size: 5565
+    - path: models/champion/baseline_model.joblib
+      hash: md5
+      md5: fb9593441f0cd9bff3f5a91b8c94d41a
+      size: 1014715
     - path: src/config.py
       hash: md5
-      md5: 27ae759dba8e7aacf529683cd0d35097
-      size: 8043
+      md5: 2790a72a5a14bdb9342c6ce7931340d0
+      size: 8344
     - path: src/logging_utils.py
       hash: md5
       md5: 73f18918316168b42df64abc265cff2d
       size: 2848
     - path: src/models
       hash: md5
-      md5: a39129fc05ee14d3b93fbb8af8a6f8d7.dir
-      size: 22151
-      nfiles: 6
+      md5: cb33adf305a122518b00b2310c496b55.dir
+      size: 26615
+      nfiles: 7
     - path: src/monitoring
       hash: md5
-      md5: 5a993fdb63598d2d157b3b94e2762561.dir
-      size: 74191
-      nfiles: 8
+      md5: fbb5d04be9c3b07259d8740e674393ca.dir
+      size: 161735
+      nfiles: 11
     - path: src/validation
       hash: md5
       md5: 86a5438a1a06def96ca226dce7b2a137.dir
@@ -130,35 +138,35 @@ stages:
     outs:
     - path: data/samples/invalid_batch.csv
       hash: md5
-      md5: 2e3a1f74b76a24f806b43a3a9c9fda3c
-      size: 97446
+      md5: c31057424aaa78dcf0ce7ab9f559058d
+      size: 97955
     - path: data/samples/valid_batch.csv
       hash: md5
-      md5: 0d65c98a204ffd20d94945f59478638d
-      size: 88233
+      md5: f1b43a589819315b35827d5077588aed
+      size: 88734
     - path: reports/data_contract/contract_demo_summary.md
       hash: md5
-      md5: 099eac45e0e1e5af62134aca324d4b02
+      md5: 7768fd826898aaf2c97e26200e054e09
       size: 2490
     - path: reports/data_contract/invalid_batch_manifest.json
       hash: md5
-      md5: db221e17614e25488d95ab923a459b41
-      size: 1883
+      md5: 568e2c903df2ff522a06331fd2610511
+      size: 1964
     - path: reports/data_contract/invalid_batch_report.html
       hash: md5
-      md5: 573cf3e1fd02dd348e8113ff773b7ba3
+      md5: c2ad8847afc7fb1ccf18b30e23b8b542
       size: 13795
     - path: reports/data_contract/invalid_batch_report.json
       hash: md5
-      md5: 009bb635eb3b89bb179552bf47830302
+      md5: 6e52dc1391700ec7476f6983f0f176a8
       size: 3107
     - path: reports/data_contract/valid_batch_report.html
       hash: md5
-      md5: 11e58c691201409cb225a4fefd82da1e
+      md5: ebc4a4f938ea791ad5520be4467e7d2f
       size: 1884
     - path: reports/data_contract/valid_batch_report.json
       hash: md5
-      md5: c44c23dfde1b45adf0c75befa4501835
+      md5: e48de4d2d235fc2c9235b80e0702eff9
       size: 459
   drift_demo:
     cmd: uv run python -m src.monitoring.stage drift_demo
@@ -169,24 +177,32 @@ stages:
       size: 2639837
     - path: data/reference/reference.parquet
       hash: md5
-      md5: ecb8a730c6ceb7f23c4822c25349a1ad
+      md5: 57243d3cec885acd40781389bb18a70d
       size: 5550533
     - path: models/baseline_metadata.json
       hash: md5
-      md5: b136255157a22908460ac46645501c0e
-      size: 5331
+      md5: 22528f3c55ac5b805a3e095c0f02fdd6
+      size: 5336
     - path: models/baseline_model.joblib
       hash: md5
-      md5: 766bad057925238b48b15e86bf9f6881
-      size: 827460
+      md5: fb9593441f0cd9bff3f5a91b8c94d41a
+      size: 1014715
+    - path: models/champion/baseline_metadata.json
+      hash: md5
+      md5: 74e3ec9f591233d83a47283a91ab9ba0
+      size: 5565
+    - path: models/champion/baseline_model.joblib
+      hash: md5
+      md5: fb9593441f0cd9bff3f5a91b8c94d41a
+      size: 1014715
     - path: src/config.py
       hash: md5
-      md5: 27ae759dba8e7aacf529683cd0d35097
-      size: 8043
+      md5: 2790a72a5a14bdb9342c6ce7931340d0
+      size: 8344
     - path: src/drift
       hash: md5
-      md5: 92fd990cbda2ff09e59fcf6d2ee82e0d.dir
-      size: 37715
+      md5: c8fe2f1ed6f6d345cfdfddcebd022d1d.dir
+      size: 37777
       nfiles: 7
     - path: src/logging_utils.py
       hash: md5
@@ -194,14 +210,14 @@ stages:
       size: 2848
     - path: src/models
       hash: md5
-      md5: a39129fc05ee14d3b93fbb8af8a6f8d7.dir
-      size: 22151
-      nfiles: 6
+      md5: cb33adf305a122518b00b2310c496b55.dir
+      size: 26615
+      nfiles: 7
     - path: src/monitoring
       hash: md5
-      md5: 5a993fdb63598d2d157b3b94e2762561.dir
-      size: 74191
-      nfiles: 8
+      md5: fbb5d04be9c3b07259d8740e674393ca.dir
+      size: 161735
+      nfiles: 11
     - path: src/validation
       hash: md5
       md5: 86a5438a1a06def96ca226dce7b2a137.dir
@@ -218,57 +234,57 @@ stages:
       size: 2631635
     - path: reports/drift/contract_gate/production_t0_report.html
       hash: md5
-      md5: 838b2e0246a7f757ba9b7cc199c3a75b
-      size: 1895
+      md5: 93f59e56371c8055b88ca961e0a512a7
+      size: 1894
     - path: reports/drift/contract_gate/production_t0_report.json
       hash: md5
-      md5: a8c729e33e0f6084414fe84abd1d1768
-      size: 483
+      md5: 373f4be5b7d2017a2e24ee37e98f80ba
+      size: 482
     - path: reports/drift/contract_gate/production_t1_data_drift_report.html
       hash: md5
-      md5: 3dc61d7e1e16e099b3281dcf75838572
-      size: 1917
+      md5: 1d5aa4eb9206730253111c7100445e19
+      size: 1916
     - path: reports/drift/contract_gate/production_t1_data_drift_report.json
       hash: md5
-      md5: b6dd739e9e656f512b0a643f159d5b79
-      size: 516
+      md5: 3321f2992ff875f9abfbfcf893d8913b
+      size: 515
     - path: reports/drift/contract_gate/production_t2_concept_drift_report.html
       hash: md5
-      md5: 26a4563989346b8503c8a84952d145f4
+      md5: 10bb54eef750000ad20d76796533458e
       size: 1923
     - path: reports/drift/contract_gate/production_t2_concept_drift_report.json
       hash: md5
-      md5: ad77b82cc6d22bab6147a1065629be66
+      md5: e68d653d7430e02f708e4f02707e24f8
       size: 525
     - path: reports/drift/drift_demo_summary.json
       hash: md5
-      md5: 5bfce4e60eedb55bb8b9d7c2cc595126
-      size: 9327
+      md5: 0c613c4cda166fada253a87119ff493d
+      size: 9329
     - path: reports/drift/drift_demo_summary.md
       hash: md5
-      md5: 2065d571f7c3e22efb90348f2753dc2b
+      md5: e5ae9db704b985ed88441d8722d505e2
       size: 2685
     - path: reports/drift/production_t0_drift_report.html
       hash: md5
-      md5: 44fd810e7d51a70e882eb41594780805
-      size: 4095852
+      md5: 4dad020e0b30d52c3d85d616dcc14d16
+      size: 4095870
     - path: reports/drift/production_t0_drift_report.json
       hash: md5
-      md5: 692b046786a5036ce38c388a58c183c1
-      size: 5000
+      md5: 14ccaf29d986dd44bdf3cc4b2c9c2c8e
+      size: 5001
     - path: reports/drift/production_t1_data_drift_drift_report.html
       hash: md5
-      md5: e7911887bc109acc9941891b349188ec
-      size: 4097332
+      md5: 598f6bb98846d6bf4b87d1ae32c258c3
+      size: 4097320
     - path: reports/drift/production_t1_data_drift_drift_report.json
       hash: md5
-      md5: e61e90afb9fa876ffc2abdd9964493b2
+      md5: 41e9b40d37e575ebdce1475984cc5f6b
       size: 5002
     - path: reports/drift/production_t2_concept_drift_drift_report.html
       hash: md5
-      md5: c894d8555f40b85b5ef46ae86f063747
-      size: 4097271
+      md5: e382b7be8192b01312c1654f4f78dc70
+      size: 4097259
     - path: reports/drift/production_t2_concept_drift_drift_report.json
       hash: md5
-      md5: 82cc2bbba063512fc216a860ecc67b90
-      size: 5003
+      md5: 2d7912d2f17dcd06a19ccbd953e714fd
+      size: 5002

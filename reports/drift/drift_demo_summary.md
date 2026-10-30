@@ -1,6 +1,6 @@
 # Etapa 2 — Demonstracao de Drift
 
-> Gerado em `2026-10-27T10:38:26.727947+00:00` · seed=42 · modelo `baseline-v1` · amostra Evidently=15000.
+> Gerado em `2026-10-30T02:41:33.411237+00:00` · seed=42 · modelo `baseline-v1` · amostra Evidently=15000.
 
 ## Gate do contrato
 
@@ -10,11 +10,11 @@ Todos os lotes (t0, t1 com data drift, t2 com data+concept) **passaram** no cont
 
 | Fatia | ROC-AUC | Aprovação | Default na carteira aprovada | Default base |
 |---|---|---|---|---|
-| t0 (sem drift) | 0.7533 | 64.57% | 0.0374 | 8.07% |
-| t1 (data drift) | 0.7224 | 51.84% | 0.0367 | 8.07% |
-| t2 (data+concept) | 0.5720 | 51.84% | 0.0984 | 11.75% |
+| t0 (sem drift) | 0.7534 | 64.95% | 0.0376 | 8.07% |
+| t1 (data drift) | 0.7223 | 52.04% | 0.0367 | 8.07% |
+| t2 (data+concept) | 0.5733 | 52.04% | 0.0982 | 11.75% |
 
-Queda de AUC t0→t2: **0.1813**.
+Queda de AUC t0→t2: **0.1801**.
 
 ## Detecção Evidently (vs Dataset de Referência)
 
@@ -32,9 +32,9 @@ Queda de AUC t0→t2: **0.1813**.
 
 | Fatia | ROC-AUC | Queda vs t0 | Limiar | Modelo degradado |
 |---|---|---|---|---|
-| `production_t0` | 0.7533 | 0.0000 | 0.05 | nao |
-| `production_t1_data_drift` | 0.7224 | 0.0309 | 0.05 | nao |
-| `production_t2_concept_drift` | 0.5720 | 0.1813 | 0.05 | SIM |
+| `production_t0` | 0.7534 | 0.0000 | 0.05 | nao |
+| `production_t1_data_drift` | 0.7223 | 0.0311 | 0.05 | nao |
+| `production_t2_concept_drift` | 0.5733 | 0.1801 | 0.05 | SIM |
 
 A queda de ROC-AUC com rótulos de feedback é o sinal confiável de concept drift: mede se o modelo passou a errar mais, independentemente de o rótulo ter mudado de prevalência.
 

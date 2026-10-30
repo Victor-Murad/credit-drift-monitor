@@ -80,7 +80,7 @@
     }
   ],
   "label_shift": false,
-  "duration_ms": 290.0,
+  "duration_ms": 567.15,
   "report_paths": {},
   "concept_drift": false,
   "evidently_metrics": [
