@@ -31,6 +31,7 @@ from tests.conftest import (
     isolar_estado_mlflow,
     make_valid_df,
     sha256_de,
+    uri_mlflow_inacessivel,
 )
 
 FAST_XGB = {"n_estimators": 20, "n_jobs": 1}
@@ -502,9 +503,7 @@ def test_retrain_falha_fechada_com_mlflow_indisponivel(
     sandbox, tmp_path, monkeypatch, mlflow_isolado, capsys
 ):
     # Diretório que não pode ser criado (o mesmo dos testes do adaptador).
-    monkeypatch.setattr(
-        config, "MLFLOW_TRACKING_URI", "sqlite:////proc/inexistente/mlflow.db"
-    )
+    monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri_mlflow_inacessivel(tmp_path))
 
     assert retrain.main([]) == retrain.EXIT_OPERATIONAL_ERROR
 

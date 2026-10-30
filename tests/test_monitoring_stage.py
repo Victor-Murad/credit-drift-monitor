@@ -18,7 +18,12 @@ from src.models import train
 from src.monitoring import registry, stage
 from src.monitoring.registry import get_alias_version
 from src.validation.gate import enforce_contract
-from tests.conftest import cliente_mlflow, make_valid_df, sha256_de
+from tests.conftest import (
+    cliente_mlflow,
+    make_valid_df,
+    sha256_de,
+    uri_mlflow_inacessivel,
+)
 from tests.test_prepare import _raw_from
 
 FAST_XGB = {"n_estimators": 20, "n_jobs": 1}
@@ -216,13 +221,15 @@ def test_stage_prepare_registra_volume(tracking_env, caminhos):
 @pytest.mark.parametrize(
     "uri",
     [
-        "sqlite:////proc/inexistente/mlflow.db",
+        "sqlite-inacessivel",
         "postgresql://admin:segredo123@host.invalid/db",
     ],
 )
 def test_stage_falha_fechada_sem_mlflow(
     tmp_path, monkeypatch, mlflow_isolado, caminhos, capsys, uri
 ):
+    if uri == "sqlite-inacessivel":
+        uri = uri_mlflow_inacessivel(tmp_path)
     monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri)
     monkeypatch.setattr(config, "MLFLOW_ARTIFACT_ROOT", tmp_path / "mlartifacts")
     monkeypatch.delenv("MONITORING_TRACKING", raising=False)
