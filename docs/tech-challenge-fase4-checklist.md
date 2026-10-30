@@ -7,9 +7,9 @@
 
 ---
 
-## Estado da validação (2026-10-25; Etapa 3 atualizada em 2026-10-27)
+## Estado da validação (2026-10-25; Etapa 3 atualizada em 2026-10-27; Etapa 4 em 2026-10-29)
 
-Validado contra o repositório e reproduzido ponta a ponta com o dataset real (2026-10-25): `pytest` com 74 testes passando, cobertura 95% (`make test-cov`, piso 80%; na Etapa 3 a suíte chegou a 458 testes e 97,63%), `ruff` e `lint-imports` limpos, baseline e relatórios Evidently versionados. **Etapas 1 e 2 implementadas e com as pendências de código/documentação fechadas; Etapa 3 implementada e aceita com os dados reais (2026-10-27); Etapa 4 pendente** (README marca "Em construção"). Situação dos pontos levantados em 2026-10-21:
+Validado contra o repositório e reproduzido ponta a ponta com o dataset real (2026-10-25): `pytest` com 74 testes passando, cobertura 95% (`make test-cov`, piso 80%; na Etapa 3 a suíte chegou a 458 testes e 97,63%), `ruff` e `lint-imports` limpos, baseline e relatórios Evidently versionados. **Etapas 1 e 2 implementadas e com as pendências de código/documentação fechadas; Etapa 3 implementada e aceita com os dados reais (2026-10-27); Etapa 4 com a documentação de governança, LGPD e causalidade no README, auditoria de viés implementada e roteiro do vídeo pronto (2026-10-29). Pendentes: gravação e link do vídeo, execução real da auditoria de viés e a nova reprodução ponta a ponta com o dataset.** Situação dos pontos levantados em 2026-10-21:
 
 - [X] **Instalação limpa (1.2) e reprodução ponta a ponta (4.3):** `uv sync --locked` + `ruff` + `lint-imports` + `pytest` verificados numa cópia nova do projeto (sem `.venv`), e `make data && make train && make etapa1 && make etapa2` executados com o `application_train.csv` real (307.511 linhas, 21 rejeitadas, 215.243 / 92.247 no split, idênticos ao README). O retreino nesta máquina deu ROC-AUC 0,7491 (antes 0,7494): diferença numérica entre ambientes, sem mudar conclusões.
 - [X] **Concept drift (2.3):** limitação documentada no README, no `docs/etapa-2-...md` e no sumário da demo (o teste sobre `target` mede label shift). A queda de ROC-AUC (`src/drift/performance.py`) entra no sumário JSON/MD (`performance`), pronta para a Etapa 3.
@@ -212,23 +212,23 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 
 ### 4.1 Documentação de Governança e LGPD (no README.md)
 
-- [ ] Escrever o **plano de proteção de dados (LGPD)**, contendo:
+- [X] Escrever o **plano de proteção de dados (LGPD)**, contendo (README, seção 4.1):
   - como dados sensíveis (PII) foram tratados no projeto
   - qual a base legal para a decisão de crédito
   - o plano de retenção de dados
-- [ ] Incluir a **mitigação de vieses** na documentação de governança (critério de avaliação distinto da análise causal; ex.: atributos protegidos como gênero e idade no modelo)
-- [ ] Incluir a **análise causal do problema** de degradação do modelo (ambiguidade #2)
-- [ ] Documentar as ferramentas escolhidas e a justificativa técnica (Great Expectations vs. Pandera; MLflow vs. Datadog/outra alternativa)
-- [ ] Revisar se o `README.md` cobre, de forma consolidada, os 5 itens obrigatórios do repositório:
-  - [ ] Pipeline de validação de dados (data contracts) configurado
-  - [ ] Scripts de simulação e detecção estatística de Drift
-  - [ ] Dashboards ou relatórios HTML comprovando o monitoramento
-  - [ ] Documentação consolidada de Governança
-  - [ ] Histórico de commits semântico e organizado
+- [X] Incluir a **mitigação de vieses** na documentação de governança (critério de avaliação distinto da análise causal; ex.: atributos protegidos como gênero e idade no modelo)
+- [X] Incluir a **análise causal do problema** de degradação do modelo (ambiguidade #2)
+- [X] Documentar as ferramentas escolhidas e a justificativa técnica (Great Expectations vs. Pandera; MLflow vs. Datadog/outra alternativa)
+- [X] Revisar se o `README.md` cobre, de forma consolidada, os 5 itens obrigatórios do repositório:
+  - [X] Pipeline de validação de dados (data contracts) configurado
+  - [X] Scripts de simulação e detecção estatística de Drift
+  - [X] Dashboards ou relatórios HTML comprovando o monitoramento
+  - [X] Documentação consolidada de Governança
+  - [X] Histórico de commits semântico e organizado
 
 ### 4.2 Vídeo STAR (até 5 minutos)
 
-- [ ] Roteirizar o vídeo seguindo estritamente o método STAR definido no PDF:
+- [X] Roteirizar o vídeo seguindo estritamente o método STAR definido no PDF ([`video-star-roteiro.md`](video-star-roteiro.md)):
   - **Situation:** o risco da degradação silenciosa de modelos de crédito no mundo real
   - **Task:** requisitos técnicos da fase (interceptar dados ruins, detectar drift, garantir compliance)
   - **Action:** ferramentas escolhidas de validação e observabilidade, simulação do drift e plano de governança
@@ -240,11 +240,11 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 
 ### 4.3 Validação final (todas as etapas)
 
-- [ ] Conferir os **Requisitos Obrigatórios do repositório** (Etapas 1–4) item a item
-- [ ] Conferir as **Boas Práticas Obrigatórias**: separação Referência/Produção, ≥ 3 regras de qualidade, relatório PSI/KS, documentação de compliance LGPD
-- [ ] Confirmar que as bibliotecas obrigatórias estão de fato em uso e referenciadas no código
-- [ ] Priorizar revisão nos itens de maior peso: Validação de Dados (25%) e Detecção de Drift (25%) somam metade da nota
-- [X] Executar o projeto do zero em ambiente novo (fim a fim) para confirmar reprodutibilidade (Etapas 1–2 verificadas em 2026-10-25; repetir ao fechar as Etapas 3–4)
+- [X] Conferir os **Requisitos Obrigatórios do repositório** (Etapas 1–4) item a item (tabela no topo do README)
+- [X] Conferir as **Boas Práticas Obrigatórias**: separação Referência/Produção, ≥ 3 regras de qualidade, relatório PSI/KS, documentação de compliance LGPD
+- [X] Confirmar que as bibliotecas obrigatórias estão de fato em uso e referenciadas no código (README, "Tecnologias e bibliotecas")
+- [X] Priorizar revisão nos itens de maior peso: Validação de Dados (25%) e Detecção de Drift (25%) somam metade da nota
+- [ ] Executar o projeto do zero em ambiente novo (fim a fim) para confirmar reprodutibilidade (Etapas 1–2 verificadas em 2026-10-25. Em 2026-10-29: clone novo, `uv sync --locked`, lint e testes ok no Windows; pipeline real **bloqueado** sem o dataset nesta máquina, ver README, "Validação de reprodutibilidade")
 
 ### 4.4 Entrega
 
@@ -255,7 +255,7 @@ Cada Etapa termina com um **checklist de saída** que replica literalmente o ent
 
 ### ✅ Checklist de saída da Etapa 4
 
-- [ ] Documentação completa de Governança e Causalidade no README
+- [X] Documentação completa de Governança e Causalidade no README
 - [ ] Link do vídeo STAR (≤ 5 min) no README
 - [ ] Repositório e vídeo submetidos dentro do prazo
 

@@ -1,12 +1,14 @@
 """Testes dos utilitários de infraestrutura do monitoramento (memória e logs)."""
 
 import json
-import resource
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from src.monitoring import resources
 from src.monitoring.logs import extract_run_events
 from src.monitoring.resources import peak_memory_mb
 
@@ -16,6 +18,8 @@ def test_peak_memory_positivo_e_em_mb():
 
 
 def test_peak_memory_converte_unidade_por_plataforma(monkeypatch):
+    # `resource` só existe em Unix; o ramo do Windows tem teste próprio abaixo.
+    resource = pytest.importorskip("resource")
     monkeypatch.setattr(
         resource, "getrusage", lambda _who: SimpleNamespace(ru_maxrss=1_048_576)
     )
@@ -23,6 +27,12 @@ def test_peak_memory_converte_unidade_por_plataforma(monkeypatch):
     assert peak_memory_mb() == 1.0
     monkeypatch.setattr(sys, "platform", "linux")
     assert peak_memory_mb() == 1024.0
+
+
+def test_peak_memory_no_windows_usa_peak_working_set_em_bytes(monkeypatch):
+    monkeypatch.setattr(resources, "_peak_working_set_bytes", lambda: 2 * 1_048_576)
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert peak_memory_mb() == 2.0
 
 
 def _linha(run_id: str, ts: datetime, **campos) -> str:

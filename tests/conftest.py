@@ -86,6 +86,18 @@ def sha256_de(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def uri_mlflow_inacessivel(tmp_path: Path) -> str:
+    """URI SQLite cujo diretório não pode ser criado em nenhum sistema operacional.
+
+    O "diretório" pai do banco é um arquivo comum, então o `mkdir` falha no
+    Linux, no macOS e no Windows. Um `/proc/...` fixo só falha no Linux: no
+    Windows vira `<unidade>:\\proc\\...`, que é criável.
+    """
+    bloqueio = tmp_path / "arquivo-no-lugar-do-diretorio"
+    bloqueio.write_text("", encoding="utf-8")
+    return f"sqlite:///{bloqueio / 'inexistente' / 'mlflow.db'}"
+
+
 def cliente_mlflow(uri: str):
     """`MlflowClient` com tracking e registry no mesmo URI (o de `tracking_env`)."""
     from mlflow import MlflowClient

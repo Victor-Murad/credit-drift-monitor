@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from src.monitoring.tracking import (
     tracked_stage,
     tracking_enabled,
 )
+from tests.conftest import uri_mlflow_inacessivel
 
 
 @pytest.fixture(autouse=True)
@@ -447,7 +449,7 @@ def test_estado_global_do_mlflow_e_restaurado(tmp_path, monkeypatch, log_file):
     from tests.conftest import MLFLOW_ENV_VARS, isolar_estado_mlflow
 
     antes = {nome: os.environ.get(nome) for nome in MLFLOW_ENV_VARS}
-    uri_ruim = "sqlite:////proc/inexistente/mlflow.db"
+    uri_ruim = uri_mlflow_inacessivel(tmp_path)
     monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri_ruim)
     monkeypatch.delenv("MONITORING_TRACKING", raising=False)
     with isolar_estado_mlflow():
@@ -510,6 +512,8 @@ def test_tracking_off_nao_cria_banco(tmp_path, monkeypatch, log_file):
 
 
 def _uri_sem_permissao(tmp_path: Path) -> str:
+    if sys.platform == "win32":
+        pytest.skip("no Windows, chmod não restringe a escrita em diretórios")
     if os.geteuid() == 0:
         pytest.skip("root ignora permissões de diretório")
     bloqueado = tmp_path / "bloqueado"
@@ -521,7 +525,7 @@ def _uri_sem_permissao(tmp_path: Path) -> str:
 @pytest.mark.parametrize("origem", ["inexistente", "sem_permissao"])
 def test_mlflow_inacessivel_falha_fechado(tmp_path, monkeypatch, log_file, origem):
     if origem == "inexistente":
-        uri = "sqlite:////proc/inexistente/mlflow.db"
+        uri = uri_mlflow_inacessivel(tmp_path)
     else:
         uri = _uri_sem_permissao(tmp_path)
     monkeypatch.setattr(config, "MLFLOW_TRACKING_URI", uri)

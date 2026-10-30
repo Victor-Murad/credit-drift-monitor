@@ -40,8 +40,8 @@ stages:
       size: 5550533
     - path: reports/data_contract/reference_build_report.json
       hash: md5
-      md5: 0dfc3aea96f4ee63579ac0fe1aef80d9
-      size: 4218
+      md5: 52471a5b8f3cb858472cd268660e2230
+      size: 4134
   train:
     cmd: uv run python -m src.monitoring.stage train
     deps:

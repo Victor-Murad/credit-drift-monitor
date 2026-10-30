@@ -35,10 +35,21 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
   - `promote` e `promote rollback` (`python -m src.monitoring.promote`): comandos humanos que reavaliam a regra, conferem o sha256, movem `champion` e `previous`, trocam `models/champion/` de forma atômica, reconferem e gravam um run de auditoria (`CONSISTENT`/`INCONSISTENT`). `--override` exige `--reason`. Códigos 0, 2 e 1;
   - alvos `make retrain`, `make promote` e `make rollback`, que repassam `ARGS=` e mostram o código de saída exato;
   - os arquivos de `models/champion/` passam a ser `deps` de `contract_demo` e `drift_demo` no `dvc.yaml`: o `dvc repro` reexecuta as demos depois de uma promoção ou de um rollback.
+- Etapa 4, governança, LGPD e causalidade:
+  - README com o plano de proteção de dados (PII por fase, riscos, base legal pelos arts. 7º, 11 e 20, princípios do art. 6º, retenção atual e proposta), a mitigação de vieses, a análise causal da degradação (causas comprovadas na simulação e hipóteses), a justificativa das ferramentas, o mapa dos 5 requisitos obrigatórios, o inventário de bibliotecas, a validação de reprodutibilidade e as limitações conhecidas;
+  - auditoria de viés executável (`src/governance/fairness.py`, `make fairness`; [ADR-0008](docs/adrs/0008-auditoria-de-vies-sem-dependencia-nova.md)) por gênero e faixa etária, com métricas próprias e sem dependência nova; testada com dados sintéticos e ainda sem execução com o dataset;
+  - roteiro do vídeo STAR (`docs/video-star-roteiro.md`);
+  - testes de higiene: relatórios versionados sem caminho absoluto de usuário, e `project_relative` sem seguir symlink para fora do repositório.
+
+### Corrigido
+- Camada `src/monitoring` quebrava no import no Windows: `resources.py` usava `resource`, módulo só de Unix. No Windows, a memória de pico vem do `PeakWorkingSetSize` (psapi via `ctypes`, só biblioteca padrão).
+- Testes que usavam `sqlite:////proc/inexistente/...` como diretório impossível passam a usar um caminho sob um arquivo. No Windows, o `/proc/...` era criável, e os testes de falha fechada falhavam.
+- `project_relative` seguia o symlink do CSV bruto (worktree → checkout principal) e gravava o caminho absoluto, com o nome do usuário, em `reports/data_contract/reference_build_report.json`. O campo foi corrigido para `data/raw/application_train.csv` e o hash no `dvc.lock` foi atualizado.
 
 ### Alterado
 - `make data`, `make train`, `make contract-demo` e `make demo-drift` (e os apelidos `drift-demo`, `etapa1` e `etapa2`) passam a chamar `src.monitoring.stage`, com rastreamento no MLflow. `MONITORING_TRACKING=off` desliga o rastreamento.
 - `DriftResult.concept_drift` renomeado para `label_shift`. O JSON mantém `concept_drift` como alias obsoleto até a Etapa 4, e a ADR-0005 (item 4) ganhou uma emenda.
+- Remoção do alias `concept_drift` adiada para a próxima regeneração dos relatórios com o dataset (2ª emenda da ADR-0005): os JSON versionados ainda o trazem. ADR-0003 ganha uma nota sobre a portabilidade do pickle do XGBoost entre sistemas operacionais.
 - ADR-0006 passa a `Implementada` (2026-10-27) e ganha uma nota: a limitação do `dvc repro` com promoção e rollback foi tratada na ADR-0007.
 - Com o rastreamento desligado (`MONITORING_TRACKING=off`), o `dvc repro` passa a parar em `contract_demo` e `drift_demo`, porque não há champion; nesse caso, use `make pipeline`.
 - `models/` e `reports/` regenerados pela execução real da Etapa 3 em 2026-10-27, agora com `score_reference` no metadata e `label_shift` nos relatórios de drift. Os números do baseline e da demo não mudaram.
