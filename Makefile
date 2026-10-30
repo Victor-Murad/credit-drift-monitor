@@ -152,13 +152,3 @@ format:
 clean:
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
-
-# ai-guides: memória dos agentes (guia-construcao-harness §5)
-pull-memory: ## Sincronizar memória global para o repositório local
-	@./.claude/sync-claude-memory.sh pull; ./.gemini/sync-memory.sh pull
-
-push-memory: ## Sincronizar memória local para o sistema global
-	@./.claude/sync-claude-memory.sh push; ./.gemini/sync-memory.sh push
-
-setup-gemini-hook: ## Instalar pre-commit de auto-staging de memórias
-	@cp ".agents/ai-guides/templates/pre-commit-memory.sh" "$$(git rev-parse --git-path hooks)/pre-commit" && chmod +x "$$(git rev-parse --git-path hooks)/pre-commit"

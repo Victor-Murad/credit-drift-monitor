@@ -58,7 +58,8 @@ desktop.ini
 !.gemini/memory/team/
 graphify-out
 
-# Harness local (apenas .claude/ é versionado)
+# Configuracao pessoal de assistentes de IA: fica na maquina de cada um
+.claude/
 .agents/
 .gemini/
 AGENTS.md
